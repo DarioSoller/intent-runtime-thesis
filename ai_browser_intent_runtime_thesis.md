@@ -2,11 +2,11 @@
 
 ## Browser Architecture and Frontend Engineering as Reference Models for AI Harness Design
 
-**Type:** Technical thesis (computer science / AI software engineering), derived from a design thought experiment
-**Audience:** Senior frontend engineers and architects. AI terms are explained; the DOM, the cascade, dependency injection and service workers are not.
-**Status:** Conceptual architecture and prototyping direction. Statements about products, standards and tooling describe public discussion as of November 2026 and will age.
-**Classification:** Internal
-**Date:** November 2026
+- **Type:** Technical thesis (computer science / AI software engineering), derived from a design thought experiment
+- **Audience:** Senior frontend engineers and architects. AI terms are explained; the DOM, the cascade, dependency injection and service workers are not.
+- **Status:** Conceptual architecture and prototyping direction. Statements about products, standards and tooling describe public discussion as of November 2026 and will age.
+- **Classification:** Internal
+- **Date:** November 2026
 
 ---
 
@@ -22,13 +22,32 @@ The weak point of such an argument is the headline analogy itself. The DOM works
 
 ## Contents
 
-**Part I: Position.** 1 Introduction · 2 Foundations and Terminology · 3 Related Work
-**Part II: Reference Architectures.** 4 The Browser as Reference Architecture · 5 The Object Model Family
-**Part III: The Runtime Core.** 6 Architecture of the Intent Runtime · 7 The Intent Object Model · 8 The Constraint Model
-**Part IV: Build Time.** 9 Build Time
-**Part V: Run Time.** 10 Context and Memory · 11 Orchestration · 12 Security · 13 Composition at Scale: SSR, Federation, Micro Frontends · 14 Observability
-**Part VI: Evaluation.** 15 Prototype Strategy · 16 Maturity and Research Register · 17 Discussion · 18 Conclusion
-Appendix A Glossary · References
+- **Part I: Position**
+  - 1 Introduction
+  - 2 Foundations and Terminology
+  - 3 Related Work
+- **Part II: Reference Architectures**
+  - 4 The Browser as Reference Architecture
+  - 5 The Object Model Family
+- **Part III: The Runtime Core**
+  - 6 Architecture of the Intent Runtime
+  - 7 The Intent Object Model
+  - 8 The Constraint Model
+- **Part IV: Build Time**
+  - 9 Build Time
+- **Part V: Run Time**
+  - 10 Context and Memory
+  - 11 Orchestration
+  - 12 Security
+  - 13 Composition at Scale: SSR, Federation, Micro Frontends
+  - 14 Observability
+- **Part VI: Evaluation**
+  - 15 Prototype Strategy
+  - 16 Maturity and Research Register
+  - 17 Discussion
+  - 18 Conclusion
+- **Appendix A: Glossary**
+- **References**
 
 ---
 
@@ -124,11 +143,10 @@ Retrieval-augmented generation is therefore a context provider, not the centre o
 
 ### 2.2 Agent versus model
 
-```text
-Agent = role + state machine + capabilities + context policy
-      + resource policy + permissions + lifecycle + event participation
-Model = capability profile + invoke(request) -> result
-```
+| Concept | Composition                                                                                                            |
+| ------- | ---------------------------------------------------------------------------------------------------------------------- |
+| Agent   | Role + state machine + capabilities + context policy + resource policy + permissions + lifecycle + event participation |
+| Model   | Capability profile + `invoke(request) -> result`                                                                       |
 
 An agent survives model substitution in _identity_. It survives in _behaviour_ only to the degree a conformance suite says so (9.5).
 
