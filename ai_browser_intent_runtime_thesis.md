@@ -3,86 +3,113 @@
 ## Browser Architecture and Frontend Engineering as Reference Models for AI Harness Design
 
 **Type:** Technical thesis (computer science / AI software engineering), derived from a design thought experiment
-**Status:** Conceptual architecture and prototyping direction. Statements about specific products, models, browser engines or ecosystem tooling describe the state of discussion, not verified requirements.
+**Audience:** Senior frontend engineers and architects. AI terms are explained; the DOM, the cascade, dependency injection and service workers are not.
+**Status:** Conceptual architecture and prototyping direction. Statements about products, standards and tooling describe public discussion as of November 2026 and will age.
 **Classification:** Internal
-**Version:** 1.0, October 2026
+**Version:** 2.0, November 2026 (supersedes 1.0, October 2026)
 
 ---
 
 ## Abstract
 
-Current AI harnesses tend to collapse several distinct concerns into one object: the language model is treated as the agent, the scheduler, the state store and the user interface at once, and the chat transcript doubles as the system of record. This thesis argues that the next useful abstraction for applied AI is not a larger model but an *intelligence runtime*: a persistent, event-driven, capability-oriented execution environment in which models are interchangeable compute resources and the user's goal is represented as a first-class, inspectable runtime object.
+Current AI harnesses collapse several concerns into one object: the language model is treated as agent, scheduler, state store and user interface at once, and the chat transcript doubles as the system of record. This thesis argues that the next useful abstraction for applied AI is not a larger model but an _intelligence runtime_: a persistent, event-driven, capability-oriented execution environment in which models are interchangeable compute resources and the user's goal is a first-class, inspectable runtime object.
 
-The argument proceeds by reference architecture. The web browser already solves most of the infrastructure problems such a runtime faces (isolation, concurrency, storage tiers, permissions, background execution, extensions, debugging), and frontend engineering has produced mature answers to composition, state management, declarative configuration, dependency injection and observability. We map both onto the AI harness problem, separating the mapping into a build-time and a run-time perspective, and we identify where the analogy breaks and new primitives are required: intent, probabilistic execution, epistemic state, context construction, model routing, verification and provenance.
+The argument proceeds by reference architecture. The web platform already solves most of the infrastructure problems such a runtime faces, and frontend engineering has mature answers for composition, state, declarative configuration, dependency injection, packaging and observability. We map both onto the harness problem, strictly separated into **build time** and **run time**, and we rate every mapping on a maturity scale and for research potential.
 
-The central proposal is the Intent Object Model (IOM), a DOM-analogue for intent: a shared, event-sourced object graph through which agents, tools, models, user interfaces and developer tools coordinate. We give a minimal schema, an operation and event taxonomy, a declarative context-composition model modelled on ESLint, a capability-resolution model modelled on hierarchical dependency injection, and a phased prototype strategy based on Chromium/CEF. We close with a maturity gap analysis between the frontend and AI tooling ecosystems, most notably the absence of versioned package registries and lockfiles for agent components.
+Version 2.0 repairs the weak point of version 1.0, which was the headline analogy itself. The DOM works because it has a source language with a specified parser, because it is kept apart from everything derived from it, and because it lives under a security model built on origins. The Intent Object Model (IOM) now gets all three: a specified parsing step with recovery rules and user-confirmed intent diffs; a `spec`/`status` split with a derivation pipeline and invalidation classes; and an origin model with counterparts to CORS, CSP, Trusted Types and user activation. Around the IOM we place a family of object models, most importantly a constraint model resolved by a cascade, the CSSOM of this architecture.
+
+---
+
+## What changed since 1.0
+
+| #   | Weakness in 1.0                                                                           | Fix in 2.0                                                                                                     | Section             |
+| --- | ----------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- | ------------------- |
+| W1  | No source language and no parser; intent fidelity unaddressed                             | Specified intent parsing: recovery rules, assumptions, intent diff, acceptance criteria                        | 7.3                 |
+| W2  | IOM mixed user-owned and derived state                                                    | `spec`/`status` split; derivation pipeline with invalidation classes                                           | 7.4, 7.9            |
+| W3  | Per-step context selection defeats prompt caching                                         | Volatility-ordered context chunks; selectors rewrite only the tail; register-versus-activate for skills        | 9.6, 10.4           |
+| W4  | Permissions without origins; the data path back into the model was unguarded              | Origin model, CORS for context, CSP for intents, Trusted Types for sinks, taint, user activation, partitioning | 12                  |
+| W5  | "Concurrency control for free"                                                            | Node versions, preconditions, transactions, locks, forks, abort                                                | 7.7                 |
+| W6  | Replay over-claimed; hosted models cannot be pinned; schema evolution and erasure ignored | Three replay modes with divergence detection; model dependency classes; upcasters; crypto-shredding            | 7.6, 9.8, 9.9, 10.2 |
+| W7  | Verification independence asserted; scalar confidence; no retraction                      | Independence requirements; typed epistemic status; decisions as computed values                                | 7.8, 11.6           |
+| W8  | Cognitive scaffolding exposed to model progress                                           | Control plane versus cognitive plane; shadow agents; ablation gates                                            | 2.4, 9.9, 11.1      |
+| W9  | Ecosystem claims dated; related work thin                                                 | Related-work chapter; maturity and research register                                                           | 3, 16               |
+
+All diagrams are Mermaid. Duplicated passages of 1.0 were consolidated; no topic was removed.
 
 ---
 
 ## Contents
 
-1. Introduction
-2. Foundations and Terminology
-3. Architecture of the Intent Runtime
-4. The Intent Object Model
-5. Context Engineering
-6. Orchestration: Lifecycle, Scheduling, Capability Resolution, Routing
-7. The Browser as Reference Architecture
-8. Frontend Engineering as Reference Discipline: Build Time and Run Time
-9. Observability and Debuggability
-10. Prototype Strategy
-11. Discussion
-12. Conclusion
-Appendix A. Glossary
+**Part I: Position.** 1 Introduction · 2 Foundations and Terminology · 3 Related Work
+**Part II: Reference Architectures.** 4 The Browser as Reference Architecture · 5 The Object Model Family
+**Part III: The Runtime Core.** 6 Architecture of the Intent Runtime · 7 The Intent Object Model · 8 The Constraint Model
+**Part IV: Build Time.** 9 Build Time
+**Part V: Run Time.** 10 Context and Memory · 11 Orchestration · 12 Security · 13 Composition at Scale: SSR, Federation, Micro Frontends · 14 Observability
+**Part VI: Evaluation.** 15 Prototype Strategy · 16 Maturity and Research Register · 17 Discussion · 18 Conclusion
+Appendix A Glossary · References
 
 ---
+
+# Part I: Position
 
 ## 1. Introduction
 
 ### 1.1 From model size to runtime design
 
-The thought experiment behind this thesis began with an unlikely topic: simulated fruit-fly brains. Such a simulation is a computational model of neural circuitry, derived from connectome data, not a biological brain copied into software. Its relevance here is systemic rather than biological. A small, narrowly specialised computational system can be useful when it sits inside an environment that gives it inputs, routes its outputs, and combines it with other specialised systems. Useful behaviour emerges from composition, not from the size of any one component.
+The thought experiment began with simulated fruit-fly brains. Such a simulation is a computational model of neural circuitry derived from connectome data, not a biological brain copied into software. Its relevance is systemic: a small, narrowly specialised system is useful when it sits inside an environment that gives it inputs, routes its outputs and combines it with other specialised systems. Useful behaviour emerges from composition.
 
-Transferred to AI engineering, this shifts the design question from "how large must the model be?" to "what runtime can make many different computational capabilities work together?" A coding agent might use a small local model for trivial edits, a larger local model for harder tasks, a frontier model for the hardest ones, and an independent verifier for anything critical. The agent stays the same; the compute underneath it changes. That observation, generalised, is the thesis.
+Transferred to AI engineering, the design question shifts from "how large must the model be?" to "what runtime makes many computational capabilities work together?" A coding agent might use a small local model for trivial edits, a larger local model for harder ones, a frontier model for the hardest and an independent verifier for anything critical. The agent stays the same; the compute underneath changes.
 
 ### 1.2 Problem statement
 
-Harnesses built around large language models today exhibit a recurring set of structural weaknesses. We state them as problems to be solved rather than as criticism of any product:
-
-- **P1. Model/agent conflation.** The model is addressed as if it were the agent, the planner and the scheduler. Lifecycle, permissions and state have no home of their own.
-- **P2. Transcript as state.** The chat history is the only persistent representation of what the system knows and has done. It is linear, lossy and unqueryable.
-- **P3. Context dumping.** Context is assembled by appending as much as fits. There is no selection discipline, no reproducibility, and the context window becomes the de facto database.
-- **P4. Retrieval at the centre.** Vector retrieval is treated as the architecture rather than as one provider among several.
-- **P5. Opaque execution.** There is no inspectable record of which model received which context, why a decision was taken, or what evidence existed at the time.
-- **P6. Unbounded autonomy loops.** Orchestration is a single autonomous loop in which the model decides what happens next, including resource allocation and authorisation.
+- **P1. Model/agent conflation.** The model is addressed as agent, planner and scheduler. Lifecycle, permissions and state have no home.
+- **P2. Transcript as state.** The chat history is the only persistent representation. It is linear, lossy and unqueryable.
+- **P3. Context dumping.** Context is assembled by appending what fits. The context window becomes the database.
+- **P4. Retrieval at the centre.** Vector retrieval is treated as the architecture rather than as one provider.
+- **P5. Opaque execution.** No inspectable record of which model received which context and why.
+- **P6. Unbounded autonomy loops.** The model decides what happens next, including resource allocation and authorisation.
+- **P7. Unparsed intent.** What the user wants is never represented, confirmed or testable. _(new)_
+- **P8. Origin-less context.** The user's words, a tool result and a hostile web page share one context window with equal standing. It is a browser with no same-origin policy. _(new)_
+- **P9. Run time without build time.** Harnesses have behaviour but no resolution, checking, bundling or release discipline. _(new)_
 
 ### 1.3 Thesis statement
 
 > An intelligence runtime is to intent what the browser is to documents: a persistent execution environment that manages state, context, computation, capabilities, concurrency, storage, security and lifecycle around a first-class representation of the user's goal.
 
-Three corollaries follow and recur throughout the document:
+Four corollaries:
 
-1. The model is not the agent and not the runtime; it is a compute resource used by the runtime.
+1. The model is not the agent and not the runtime; it is a compute resource.
 2. Probabilistic components propose; deterministic components validate, authorise, execute and record.
-3. The missing platform primitive is a shared, inspectable object model of the active intent, the IOM, which plays the role the DOM plays in a browser.
+3. The missing platform primitive is a shared, inspectable object model of the active intent, the IOM, with a family of object models around it.
+4. The runtime owns _control_ (authority, audit, isolation, cost). It does not own _cognition_. Scaffolding that tells a model how to think is optional and must be removable (2.4).
 
-### 1.4 Method and scope
+### 1.4 Method, scope and a declaration of bias
 
-This is a design thesis, not an empirical one. Its method is architecture by analogy: we take two mature reference systems, the browser platform and the frontend engineering discipline, extract their structural solutions, and test each against the requirements of an intelligence runtime. Where the mapping holds we adopt the solution; where it breaks we name the new primitive required.
+This is a design thesis. Its method is architecture by analogy: take two mature reference systems, extract their structural solutions, test each against the runtime's requirements, adopt what holds and name the new primitive where it breaks. The claim is never that frontend has solved AI.
 
-Analogy-driven design has known failure modes, and we return to them in Chapter 11. The claim is never that "frontend has solved AI". The claim is narrower: frontend and browser architecture provide mature solutions for runtime composition and stateful, user-facing, concurrent computation, and those solutions can be extended with probabilistic, epistemic and intent-specific primitives.
+The thesis takes sides, and says so, because an analogy drawn from "frontend in general" would be mush.
+
+- **Standards over libraries.** The DOM, the cascade, custom elements, Shadow DOM, service workers, IndexedDB and CORS will outlive every framework. We draw on the platform first.
+- **Angular and web components over React.** Angular treats dependency injection, compilation and migrations as framework responsibilities, and it has stayed close to the platform. Web components _are_ the platform. React appears only where it is genuinely first (3.5).
+- **Three languages, three files.** A `.tsx` file mixes structure, style and behaviour in one syntax. A prompt in a string literal inside application code is the same mistake. We keep intent, constraints and behaviour in separate, separately toolable artefacts (9.2).
+- **Statecharts over reducers.** A reducer says how state changes; a statechart says which changes are legal. Agents need the second. Statecharts also have a formal semantics and a W3C Recommendation (SCXML) behind them. We use XState vocabulary throughout.
+
+These are tastes, defended as engineering choices. Readers with other tastes can translate; the structure survives.
 
 ### 1.5 Contributions
 
-- **C1.** The Intent Object Model as a DOM-analogue: definition, schema, operations, event taxonomy, and its grounding in CQRS and event sourcing (Chapter 4).
-- **C2.** A layered runtime architecture with an explicit deterministic/probabilistic boundary (Chapters 3 and 6).
-- **C3.** A systematic browser-to-runtime mapping with an explicit difference analysis (Chapter 7).
-- **C4.** A frontend-to-harness mapping split into build-time and run-time perspectives, including ESLint as a reference architecture for declarative context composition, hierarchical dependency injection as the model for capability resolution, and a maturity gap analysis centred on package registries (Chapters 5, 6 and 8).
-- **C5.** A phased prototype strategy that proves the runtime abstraction before touching browser internals (Chapter 10).
+- **C1.** The IOM as DOM-analogue with a specified parsing step, a `spec`/`status` split, versioned concurrency and typed epistemic state (Chapter 7).
+- **C2.** A family of object models, including a constraint model resolved by a cascade (Chapters 5 and 8).
+- **C3.** A layered runtime with a deterministic/probabilistic boundary and a control-plane/cognitive-plane split (Chapters 2, 6, 11).
+- **C4.** A browser-to-runtime mapping with difference analysis (Chapter 4).
+- **C5.** A frontend-to-harness mapping split into build time and run time: ESLint-style context composition, cache-aware bundling and critical-context extraction at build time; memory topology, hierarchical DI and update lifecycles at run time (Chapters 9 to 11).
+- **C6.** An origin-based security model for agent context (Chapter 12).
+- **C7.** Counterparts for SSR, module federation and micro frontends (Chapter 13).
+- **C8.** A maturity and research register of 48 concepts (Chapter 16), and a phased prototype strategy (Chapter 15).
 
-### 1.6 Outline
+### 1.6 How to read this document
 
-Chapter 2 fixes terminology. Chapter 3 gives the architecture at a glance. Chapters 4 to 6 detail the three subsystems that carry most of the novelty: the IOM, the context engine, and orchestration. Chapters 7 and 8 present the two reference architectures in depth. Chapter 9 covers observability, Chapter 10 the prototype path, Chapter 11 discussion and open questions, Chapter 12 the condensed theses.
+Everything in Part IV happens before an intent exists. Everything in Part V happens while one is live. Each major section opens with a line such as _Maturity M1 · research potential high_, using the scale of 2.5.
 
 ---
 
@@ -90,543 +117,1283 @@ Chapter 2 fixes terminology. Chapter 3 gives the architecture at a glance. Chapt
 
 ### 2.1 State, memory, knowledge, events, context
 
-Five terms are routinely used interchangeably in AI systems and must be separated:
+| Term          | Meaning                                                      | Mutability  | Canonical?                 |
+| ------------- | ------------------------------------------------------------ | ----------- | -------------------------- |
+| **Event log** | What happened, in what order, caused by which command        | Append-only | Yes (source of truth)      |
+| **State**     | What is true now; a projection over events                   | Derived     | Yes (projected truth)      |
+| **Memory**    | What was experienced or learned earlier                      | Curated     | No                         |
+| **Knowledge** | Information that exists externally and can be retrieved      | External    | No                         |
+| **Context**   | The subset of all of the above assembled for one computation | Ephemeral   | No (a view)                |
+| **Evidence**  | What supports a particular claim or decision                 | Append-only | Yes, with epistemic status |
 
-| Term | Meaning | Mutability | Canonical? |
-|---|---|---|---|
-| **Event log** | What happened, when, in what order, caused by which command | Append-only | Yes (source of truth) |
-| **State** | What is true now; a projection over events | Derived | Yes (projected truth) |
-| **Memory** | What happened earlier or was learned; historical and semantic | Curated | No |
-| **Knowledge** | Information that exists externally and can be retrieved | External | No |
-| **Context** | The subset of all of the above assembled for one computation | Ephemeral | No (a view) |
-
-Their relationship:
-
-```text
-                    ┌───────────────┐
-                    │   Event Log   │  what happened
-                    └───────┬───────┘
-                            │ project
-                            ↓
-                    ┌───────────────┐
-                    │ Current State │  what is true
-                    └───────┬───────┘
-                            │
-             ┌──────────────┼──────────────┐
-             ↓              ↓              ↓
-        semantic         graph          temporal
-         memory        knowledge        history
-             └──────────────┼──────────────┘
-                            ↓
-                     Context Engine
-                            ↓
-                   task-specific context  →  model
+```mermaid
+flowchart TD
+  EL["Event log<br/>what happened"] -->|project| ST["Current state<br/>what is true"]
+  ST --> SM["Semantic memory"]
+  ST --> KG["Graph knowledge"]
+  ST --> TH["Temporal history"]
+  SM --> CE["Context engine"]
+  KG --> CE
+  TH --> CE
+  CE --> CTX["Task-specific context"] --> M["Model"]
 ```
 
-The consequence for retrieval-augmented generation is direct: RAG is a context provider, not the centre of the architecture. For software engineering tasks in particular, relationship-aware structures (dependency graphs, symbol graphs, Git history, architecture decision records, project state, event history) are often more useful than similarity search over chunks.
+Retrieval-augmented generation is therefore a context provider, not the centre of the architecture. For software engineering tasks, relationship-aware structures (dependency graphs, symbol graphs, Git history, decision records, event history) usually beat similarity search over chunks.
 
 ### 2.2 Agent versus model
 
-An **agent** is a stable computational identity with a lifecycle. A **model** is a compute resource the agent invokes. Formally:
-
 ```text
-Agent  = role + state machine + capabilities + context policy
-       + resource policy + permissions + lifecycle + event participation
-Model  = capability profile + invoke(request) → result
+Agent = role + state machine + capabilities + context policy
+      + resource policy + permissions + lifecycle + event participation
+Model = capability profile + invoke(request) -> result
 ```
 
-An agent survives model substitution. A coding agent remains the same runtime object whether the current step runs on a small local model or a frontier model. This separation is what makes routing, escalation, privacy policy and cost control possible at all.
+An agent survives model substitution in _identity_. It survives in _behaviour_ only to the degree a conformance suite says so (9.5). Version 1.0 claimed the first and implied the second.
 
 ### 2.3 The deterministic/probabilistic boundary
 
-The single most load-bearing principle in the architecture is that probabilistic and deterministic responsibilities are assigned to different components:
+| Probabilistic side (models, agents) | Deterministic side (runtime)                      |
+| ----------------------------------- | ------------------------------------------------- |
+| Natural-language interpretation     | Authorisation and permission checks               |
+| Planning, hypothesis generation     | State transitions, event recording                |
+| Classification, inference           | Schema and version validation                     |
+| Decision and action _proposals_     | Capability execution                              |
+|                                     | Budgets, policy enforcement, artifact persistence |
+|                                     | Origin tagging, taint tracking, activation checks |
 
-| Probabilistic side (models, agents) | Deterministic side (runtime) |
-|---|---|
-| Natural-language interpretation | Authorisation and permission checks |
-| Planning, hypothesis generation | State transitions |
-| Classification, inference | Event recording |
-| Decision *proposals* | Schema validation |
-| Action *proposals* | Capability execution |
-| | Resource budgets, policy enforcement |
-| | Dependency management, artifact persistence |
+A model may propose `create_subgoal("Find flights")`. Only the runtime decides whether the proposal is valid, authorised, fresh and within budget, and only the runtime records it.
 
-The boundary is crossed in one direction only:
+Version 1.0 said the boundary is crossed in one direction only. That is true for authority and false for data. Results flow back into the model through context, and that return path is where prompt injection lives. Version 2.0 guards it with an origin gate.
 
-```text
-probabilistic agent → proposed operation → runtime validation
-→ command → event → projection → execution (deterministic)
+```mermaid
+flowchart LR
+  subgraph P["Probabilistic side"]
+    A["Agent / model"]
+  end
+  subgraph D["Deterministic side"]
+    V["Validator<br/>schema, authority, budget,<br/>version, taint, activation"]
+    C["Command handler"]
+    E[("Event store")]
+    PR["Projection"]
+    X["Capability execution"]
+    G["Origin gate"]
+  end
+  A -->|"proposed operation"| V
+  V -->|accept| C
+  V -->|reject| A
+  C --> E --> PR
+  C --> X
+  X -->|"result tagged with origin"| G
+  PR -->|"context selectors"| G
+  G -->|context| A
 ```
 
-A model may propose `create_subgoal("Find flights")`. Only the runtime decides whether the proposal is valid, authorised and within budget, and only the runtime records it. This matters for security (the model never holds authority), for provenance (every state change has a validated command behind it), and for debugging (the system can be replayed).
+### 2.4 Control plane and cognitive plane
 
-### 2.4 Reference disciplines
+Harness components encode beliefs about what models do badly, and models keep improving. Practitioners now report that models absorb harness behaviour and that components should be switched off one at a time on each model release to see which still earn their place [Absorb]. A thesis that prescribes a thinking procedure will be obsolete on a schedule it does not control.
 
-Four established bodies of engineering practice inform the design:
+| Plane               | Contains                                                             | Depends on model strength? | Policy                                                                       |
+| ------------------- | -------------------------------------------------------------------- | -------------------------- | ---------------------------------------------------------------------------- |
+| **Control plane**   | Authority, origins, audit, isolation, budgets, lifecycle, versioning | No                         | Mandatory                                                                    |
+| **Cognitive plane** | Planning procedure, decomposition, self-critique, memory heuristics  | Yes                        | Optional; each component ships with eval evidence and an ablation test (9.9) |
 
-- **CQRS and event sourcing** supply the command/event/projection discipline and durable history (Chapter 4).
-- **Statecharts** (XState-style state machines) supply explicit agent lifecycles with recovery paths (Chapter 6).
-- **The twelve-factor methodology** supplies the deployment and operations layer (Chapter 10).
-- **Browser architecture and frontend engineering** supply the structural reference for composition, isolation, storage, permissions, declarative configuration, dependency injection and tooling (Chapters 7 and 8).
+Every mechanism in this thesis is assigned to one plane. If a future model makes a cognitive-plane component useless, deleting it must not touch the control plane.
+
+### 2.5 Maturity model and research potential
+
+The maturity scale rates the _AI counterpart as a general engineering abstraction_, not any product.
+
+| Level  | Label                   | Interpretation                                                       |
+| ------ | ----------------------- | -------------------------------------------------------------------- |
+| **M0** | Missing                 | No established general-purpose counterpart                           |
+| **M1** | Experimental            | Prototypes, research or bespoke implementations                      |
+| **M2** | Emerging                | Useful implementations exist; patterns and interfaces are fragmented |
+| **M3** | Established, incomplete | Widely used solutions; standardisation or reliability gaps remain    |
+| **M4** | Mature                  | Stable abstractions and broadly understood practice                  |
+
+Version 1.0's companion material rated almost everything M3, which says little. We add a second axis.
+
+| Research potential | Meaning                                                      |
+| ------------------ | ------------------------------------------------------------ |
+| **Low**            | The remaining work is adoption and engineering               |
+| **Medium**         | The design space is open but known techniques apply          |
+| **High**           | An open problem with no accepted solution and large leverage |
+
+These are qualitative judgements.
+
+### 2.6 Reference disciplines
+
+- **CQRS and event sourcing** supply command/event/projection discipline and durable history.
+- **Statecharts** (Harel; SCXML; XState) supply explicit lifecycles with recovery paths.
+- **The twelve-factor methodology** supplies the operations layer.
+- **The web platform** supplies object models, origins, storage tiers, workers and lifecycles.
+- **Frontend engineering** supplies declarative configuration, DI, packaging, bundling, testing and observability.
+- **Kubernetes** supplies the `spec`/`status` split and reconciliation.
 
 ---
 
-## 3. Architecture of the Intent Runtime
+## 3. Related Work
 
-### 3.1 Design principles
+Each table says what the work covers and what it leaves open _for this thesis_.
 
-- **DP1. Model as compute resource.** The model is comparable to V8 in a browser, a GPU kernel, a database engine or a compiler backend: indispensable, replaceable, not the platform.
-- **DP2. Context is constructed, not dumped.** Context is a policy-governed projection of canonical state; it is reproducible and inspectable.
-- **DP3. Events are first-class.** Durable temporal history is the source of truth; state is derived.
-- **DP4. Memory is a topology.** Different information has different consistency, retention, retrieval, mutability, provenance, cost and latency characteristics; one vector store does not fit all.
-- **DP5. Generation and verification are separable.** The component that produced an artifact is not trusted to validate it.
+### 3.1 Protocols and standards
+
+| Work                                          | Covers                                                                                                                                                     | Leaves open                                                    |
+| --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| MCP [MCP]                                     | Tool, resource and prompt interface between host and server; tool annotations (read-only, destructive, idempotent); stewarded by the Agentic AI Foundation | Shared state, scheduling, origins                              |
+| MCP Apps [AgentUI]                            | UI as a server-provided resource in a sandboxed iframe                                                                                                     | Shared intent state between app and agent                      |
+| A2A [A2A]                                     | Discovery through agent cards, delegation and task exchange between opaque agents; v1.0                                                                    | What agents share: there is no common object model             |
+| AGENTS.md, Agent Skills, Agent Plugins [AAIF] | Repository instructions; packaged procedural knowledge with progressive disclosure; bundles of skills and MCP servers                                      | Resolution semantics, peer model dependencies, published evals |
+| AG-UI, A2UI [AgentUI]                         | A typed event stream between agent backend and frontend (1.0 with 31 event types); declarative generative UI                                               | Events describe a run, not an intent; no durable projection    |
+| WebMCP [WebMCP]                               | Pages register tools for in-browser agents, with origin gating and Permissions Policy for frames; Chrome origin trial                                      | What happens to data after the tool returns                    |
+| NLWeb, llms.txt                               | Natural-language endpoints; machine-readable site summaries                                                                                                | Actions and authority                                          |
+| AP2 and Verifiable Intent [AP2]               | Signed Intent, Cart and Payment Mandates binding user instructions to agent purchases                                                                      | Payments only; the pattern generalises (7.3, 12.8)             |
+| OpenTelemetry GenAI conventions               | Span vocabulary for model and tool calls                                                                                                                   | Intent-level semantics                                         |
+
+### 3.2 Harnesses, frameworks and durable execution
+
+| Work                                             | Covers                                                                                                | Leaves open                                                  |
+| ------------------------------------------------ | ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| Claude Agent SDK, Codex, Gemini CLI, goose       | Production single-loop harnesses: context management, permissions, sandboxing, sub-agents, compaction | State is a transcript plus files; thin build-time discipline |
+| LangGraph, Microsoft Agent Framework, Google ADK | Graph orchestration, checkpoints, time travel, interrupts                                             | Checkpoints are framework-private                            |
+| Temporal, Restate, DBOS, Inngest                 | Durable, replayable workflows that require deterministic orchestration code                           | The agent step is not deterministic (9.9)                    |
+| 12-Factor Agents [12FA]                          | Principles: own your prompts and context window, unify execution and business state, pause and resume | Principles, not a runtime                                    |
+| Manus context engineering [Manus]                | Cache-stable prefixes, append-only context, masking instead of removing tools                         | Applied by hand                                              |
+| The harness-absorption debate [Absorb]           | Evidence that models absorb scaffolding                                                               | Which parts are durable (2.4)                                |
+
+### 3.3 Operating-system and browser analogies
+
+| Work                                                                                               | Covers                                                    | Leaves open                                                                             |
+| -------------------------------------------------------------------------------------------------- | --------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| "LLM OS", MemGPT/Letta [MemGPT], AIOS                                                              | Model as CPU, context as RAM with paging, an agent kernel | An OS has processes and files but no document. Nothing plays the DOM's role             |
+| Agentic browsers (ChatGPT Atlas, Comet, Gemini in Chrome, Edge Copilot Mode, Neon, Dia, BrowserOS) | Agents operating pages for the user                       | Mostly browser plus chatbot; same-origin regressions are documented [UW-SOP] [SOPGuard] |
+| Chrome built-in AI, WebNN, WebLLM                                                                  | Models as browser-provided compute                        | The runtime around them                                                                 |
+
+### 3.4 Context and prompts as engineered artefacts
+
+| Work                            | Covers                                                                                   | Leaves open                                    |
+| ------------------------------- | ---------------------------------------------------------------------------------------- | ---------------------------------------------- |
+| Priompt [Priompt]               | Prompts as components with priorities; context window as screen size; prompt source maps | Its README warns about cacheability; it is JSX |
+| DSPy, BAML, TypeChat            | Prompts as compiled programs; typed outputs                                              | Per call; no runtime state                     |
+| Spec-driven development tooling | A reviewed spec file before generation                                                   | The spec is a document, not a live object      |
+
+### 3.5 Security
+
+| Work                                         | Covers                                                                                                   | Leaves open                                            |
+| -------------------------------------------- | -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| Dual LLM (Willison), CaMeL [CaMeL], FIDES    | Privileged planning separated from quarantined reading; provenance and capabilities tracked on values    | A policy vocabulary. The browser has one (Chapter 12)  |
+| Instruction hierarchy; ManyIH [ManyIH]       | Privilege levels among instructions, resolved inside the model; frontier models struggle with many tiers | Deterministic resolution outside the model (Chapter 8) |
+| SOP for agentic browsers [UW-SOP] [SOPGuard] | Measurement of violations; an enforcement mechanism                                                      | An origin model for runtimes in general                |
+| Step-up authentication, CIBA [StepUp]        | Out-of-band human approval                                                                               | Still a prompt; no causal gating (12.8)                |
+| React taint API [Taint]                      | Marking objects that must not cross the server/client boundary                                           | Derived values are not protected (12.6)                |
+| ToxicSkills, OWASP lists [Lock]              | Measured supply-chain attacks on skills                                                                  | n/a                                                    |
+
+### 3.6 Packaging
+
+| Work                                                                           | Covers                                                                    | Leaves open                                                                          |
+| ------------------------------------------------------------------------------ | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| MCP Registry, ToolHive, APM, Quiver, skill-lock, NVIDIA verified skills [Lock] | Lockfiles with content hashes, provenance, signing, scanning, SBOM export | Incompatible formats; no shared resolution, peer model dependencies or eval evidence |
+
+Version 1.0 called registries and lockfiles "largely missing". The accurate statement now is: present, plural and incompatible.
+
+### 3.7 Earlier uses of "intent" as an object
+
+| Work                                              | Covers                                                                                                   | Leaves open                                             |
+| ------------------------------------------------- | -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| Android Intents, Apple App Intents                | A typed action message; the OS resolves implicit intents against declared filters                        | One action; no goal structure or lifecycle              |
+| W3C Web Intents (abandoned), Schema.org Actions   | Web-level action discovery                                                                               | Died for lack of publisher incentive: a warning for 4.6 |
+| Intent-based networking (RFC 9315)                | A declared outcome, continuously assured                                                                 | A closed domain with formal state                       |
+| Kubernetes                                        | Desired state reconciled against observed state                                                          | Deterministic controllers                               |
+| Intention Abstraction Layer [IAL]                 | Intentions as shared runtime objects that are registered, monitored and retired across industrial agents | The closest in spirit; no platform mapping              |
+| BDI agents, goal models (KAOS, i\*), HTN planning | Formal goal decomposition and deliberation                                                               | Design-time or single-agent                             |
+
+### 3.8 Classic foundations and cautionary precedents
+
+Blackboard systems (Hearsay-II), the actor model, statecharts, CQRS and event sourcing, truth-maintenance systems, incremental build systems, and LSP, DAP and the Chrome DevTools Protocol as precedents for small protocols that decoupled whole ecosystems. On the cautionary side: WSDL, UDDI and OWL-S described a capability-oriented web twenty years ago and nobody came. COM and the Office object models turned applications into platforms and into malware vectors in the same move.
+
+### 3.9 What remains new here
+
+To our knowledge nobody has combined: an intent object model with a specified parse step and a `spec`/`status` split; a cascade for constraints resolved outside the model; invalidation classes for re-planning; origin-based context security expressed in the browser's own mechanisms; and a build/run separation with bundling, critical-context extraction and update lifecycles. Individual pieces have prior art, cited where used.
+
+---
+
+# Part II: Reference Architectures
+
+## 4. The Browser as Reference Architecture
+
+### 4.1 Why the analogy is structural
+
+A browser coordinates heterogeneous computation, persistent and ephemeral state, networking, caching, background execution, security, extensions, resource management, process isolation, lifecycle and debugging. Each is a requirement of an intelligence runtime. The analogy is a list of solved problems.
+
+### 4.2 Primitive mapping and differences
+
+| Browser primitive                                    | Intelligence runtime                                         |
+| ---------------------------------------------------- | ------------------------------------------------------------ |
+| Browser                                              | Intelligence runtime                                         |
+| Tab                                                  | Intent workspace / session                                   |
+| Page                                                 | Session view                                                 |
+| HTML and its parser                                  | Utterance and the intent parser (7.3)                        |
+| DOM                                                  | IOM                                                          |
+| CSSOM and the cascade                                | Constraint model (Chapter 8)                                 |
+| Accessibility tree                                   | Capability tree (4.6) and oversight tree (5.3)               |
+| JavaScript                                           | Agent and model computation                                  |
+| V8                                                   | LLM / inference engine                                       |
+| Web APIs                                             | Capability APIs                                              |
+| Web Worker                                           | Agent worker bound to a session                              |
+| Service Worker                                       | Background, event-driven agent that outlives the view        |
+| Event loop                                           | Intelligence scheduler                                       |
+| Storage tiers                                        | Memory topology (10.2)                                       |
+| History                                              | Event and decision history                                   |
+| Extensions                                           | Skills and plugins                                           |
+| Origin and same-origin policy                        | Context origins (Chapter 12)                                 |
+| Permissions                                          | Capability security                                          |
+| Processes (browser, renderer, GPU, utility, network) | Orchestrator, agent, model, verification and tool workers    |
+| Profile                                              | Personal intelligence environment                            |
+| DevTools and its protocol                            | Intelligence DevTools (Chapter 14)                           |
+| URL                                                  | Resource identifier; intents get addressable identifiers too |
+
+| Browser                                          | Intelligence runtime                                    |
+| ------------------------------------------------ | ------------------------------------------------------- |
+| Mostly deterministic                             | Probabilistic                                           |
+| Page is the primary unit                         | Intent is the primary unit                              |
+| URL identifies a resource                        | Intent identifies an outcome                            |
+| HTTP is the core interface                       | Capability negotiation may be the core interface        |
+| State is comparatively objective                 | Knowledge carries uncertainty and provenance            |
+| History is navigation                            | History includes decisions, evidence, actions, outcomes |
+| Rendering is a repeatable function of its inputs | Execution changes the world                             |
+| The scheduler is mechanical                      | The scheduler must sometimes reason about allocation    |
+
+### 4.3 The LLM is V8, not the browser
+
+V8 is powerful because it sits inside a runtime that supplies a DOM to act on, APIs to call, storage, a security model and tools to debug it. Remove the browser and V8 is a fast interpreter with nothing to do. The LLM is in the same position. V8 is also replaceable for a reason: ECMAScript has a specification and a conformance suite. Models have neither, which is why 9.5 asks for one.
+
+### 4.4 Process architecture and workers
+
+The runtime mirrors the browser's process separation: orchestrator, agent workers, retrieval workers, model workers, verification workers and tool workers, connected by an event bus rather than ad hoc IPC. A Web Worker corresponds to an agent worker spawned for a subgoal. A Service Worker corresponds to a monitoring agent that reacts to events when no session is open. The service worker's _update_ lifecycle is as valuable as its background nature (11.9). The alternative to one giant autonomous loop is explicit state transitions, isolated workers and durable events.
+
+### 4.5 Tabs as intents, profiles as environments
+
+A tab gives user-visible separation, a resource lifecycle, a context boundary, interruptibility and a mental model users already own. Mapping tab to _intent_, not to agent, preserves all of it: "Launch product", "Plan vacation" and "Debug production issue" are three tabs, each with its own agent graph, working memory, artifacts and event stream, sharing one profile.
+
+Two refinements over 1.0. Intents are not always separable, so cross-intent communication uses explicit channels modelled on `postMessage` and `BroadcastChannel`, never shared mutable memory. And tabs under resource pressure follow the Page Lifecycle states (11.10).
+
+### 4.6 The semantic capability layer and the capability-oriented web
+
+_Maturity M2 · research potential medium (standards work)._
+
+Agents should not operate the DOM when a semantic capability can be exposed. `SearchWeb`, `ReadPage`, `FillForm`, `SubmitForm`, `Authenticate`, `Purchase`, `Schedule` are the right granularity; click-and-type is a fallback for legacy sites.
+
+Web 1 addressed documents, Web 2 applications; an AI-native web addresses capabilities. The flow user → URL → application → UI → action becomes user → intent → capability discovery → orchestration → outcome. UI does not disappear; it becomes a situational output modality. A service exposes:
+
+```text
+Capability:  SearchFlights
+Inputs:      origin · destination · date · passengers
+Constraints: max_price · preferred_airlines
+Permissions: user_approval_required
+SideEffects: none (safe, idempotent)
+Outputs:     flight_options
+Evidence:    source · timestamp
+```
+
+This layer is an **accessibility tree for agents**, and capability declarations are its ARIA. Three lessons transfer.
+
+1. **Semantics must be authored.** Accessibility engineering learned that meaning cannot be reliably inferred from visuals.
+2. **Incentives decide adoption.** WSDL, UDDI and Web Intents failed because publishers had no reason to care. ARIA succeeded with legal pressure, free semantics from native elements and tooling. WebMCP [WebMCP] has the first real incentive, a browser vendor shipping a consumer, but it is one engine in an origin trial.
+3. **The bridge is community typings.** DefinitelyTyped carried JavaScript through its untyped decade with third-party declarations. Legacy sites will need the same: community-maintained capability declarations, versioned and attested.
+
+### 4.7 What is reused and what must be invented
+
+| Reused from the web platform                | Invented for intelligence                      |
+| ------------------------------------------- | ---------------------------------------------- |
+| Processes, workers, IPC                     | IOM, intent parser, intent events              |
+| Networking, storage, caching                | Context engine and context bundler             |
+| Origins, CORS, CSP, permissions, sandboxing | Taint for model steps; activation by causality |
+| The cascade                                 | Constraint properties and their checks         |
+| Extensions, tabs, profiles                  | Model router, capability negotiation           |
+| DevTools                                    | Epistemic state, verification, provenance      |
+
+Hence: AI browser = browser runtime + intelligence runtime, not browser + chatbot.
+
+---
+
+## 5. The Object Model Family
+
+### 5.1 Which object models already exist
+
+"Object model" is a naming tradition, not a single thing.
+
+| Object model                               | Standing                        | Represents                                                                    | Lesson for the IOM                                                  |
+| ------------------------------------------ | ------------------------------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| **DOM**                                    | WHATWG Living Standard          | Document structure as a mutable tree with events                              | Specified in WebIDL and tested by conformance suites                |
+| **CSSOM**                                  | W3C                             | Style sheets, rules, computed values                                          | Constraints live apart from structure and resolve through a cascade |
+| **CSS Typed OM**                           | W3C (Houdini)                   | CSS values as typed objects                                                   | The cure for `value: unknown` (8.2)                                 |
+| **AOM / accessibility tree**               | WICG incubation; partly shipped | Roles, names, states for assistive technology                                 | A derived projection for non-visual consumers; see below            |
+| **BOM** (`window`, `navigator`, `history`) | Informal name                   | The environment around the document                                           | The runtime needs an ambient environment object                     |
+| **Shadow DOM**                             | Standard                        | Encapsulated subtrees with a declared surface                                 | Encapsulation with slots, parts and retargeted events (7.10)        |
+| **SVG DOM, MathML**                        | Standard                        | Domain vocabularies in the same tree                                          | The IOM needs namespaced domain vocabularies                        |
+| **Web Audio graph**                        | Standard                        | A dataflow graph of nodes, not a tree                                         | Precedent for a graph-shaped model with typed edges                 |
+| **Layout, layer, fragment trees**          | Engine-internal                 | What the engine derives from DOM and CSSOM                                    | Derived trees are never script-mutable                              |
+| **Virtual DOM**                            | Library convention              | A diffing workaround                                                          | Do not standardise workarounds                                      |
+| **ESTree**                                 | De facto standard               | Code as a tree                                                                | A shared intermediate representation makes rules portable (9.3)     |
+| **COM**                                    | Microsoft, 1993                 | Binary component interfaces; `QueryInterface` asks an object what it supports | Capability negotiation is thirty years old                          |
+| **Office object models**                   | Vendor                          | Documents as scriptable objects                                               | A scriptable object model is also an attack surface                 |
+| **Page Object Model**                      | Test pattern                    | A semantic façade over the DOM                                                | The capability layer is a page object for the web                   |
+| **Kubernetes object model**                | CNCF                            | `spec` versus `status`, reconciled                                            | Adopted directly (7.4)                                              |
+
+The AOM deserves its own paragraph. Reflecting ARIA attributes on elements shipped everywhere; events from assistive technology were abandoned; virtual accessibility nodes are blocked; querying the computed tree is partial [AOM]. Two lessons. An object model for machine consumers is only as good as what authors put into it. And exposing _who is consuming_ is a privacy leak: a site that can detect an assistive-technology user can detect an agent user.
+
+### 5.2 Structure, constraints, behaviour
+
+The web's most durable design decision is the separation of structure (HTML), presentation rules (CSS) and behaviour (JavaScript), each with its own language, object model and tools. The runtime adopts the same triad.
+
+| Web       | Runtime                | Language / artefact           | Object model         |
+| --------- | ---------------------- | ----------------------------- | -------------------- |
+| Structure | What is wanted         | Utterance, confirmed spec     | **IOM**              |
+| Rules     | Under which conditions | Constraint sheets             | **Constraint model** |
+| Behaviour | Who does the work      | Agents (statecharts, prompts) | Agent graph          |
+
+### 5.3 The IOM family
+
+```mermaid
+flowchart LR
+  subgraph B["Browser"]
+    HTML["HTML"] --> DOM["DOM"]
+    CSS["CSS"] --> CSSOM["CSSOM"]
+    DOM --> LT["Layout tree<br/>(derived)"]
+    CSSOM --> LT
+    DOM --> AX["Accessibility tree<br/>(derived)"]
+    BOM["BOM: window, navigator, history"]
+  end
+  subgraph R["Intent runtime"]
+    UT["Utterance"] --> SP["IOM spec"]
+    CS["Constraint sheets"] --> CM["Constraint model"]
+    SP --> PL["IOM status: plan<br/>(derived)"]
+    CM --> PL
+    PL --> OT["Oversight tree<br/>(derived)"]
+    RO["Runtime object: profile, models, capabilities"]
+  end
+```
+
+- **IOM `spec`**: goals, acceptance criteria, user-declared constraints. User-owned.
+- **Constraint model**: every constraint declaration from every origin, and the resolved value per node.
+- **IOM `status`**: plan, assignments, evidence, decisions, artifacts. System-owned, derived.
+- **Oversight tree**: a stable projection giving every node a role, name, state and value for people, auditors and assistive technology. Chat renders from it. It is what human-oversight obligations need.
+- **Capability tree**: the semantic view of what the outside world offers (4.6).
+- **Runtime object**: `runtime.profile`, `runtime.models`, `runtime.capabilities`, `runtime.budget`, `runtime.history`.
+
+### 5.4 Naming
+
+"Intent Object Model" continues the tradition and avoids its collisions: COM, BOM and POM are taken. We therefore say "constraint model" and "oversight tree" rather than mint more three-letter acronyms.
+
+---
+
+# Part III: The Runtime Core
+
+## 6. Architecture of the Intent Runtime
+
+### 6.1 Design principles
+
+- **DP1. Model as compute resource.** Comparable to V8 or a GPU kernel: indispensable, replaceable, not the platform.
+- **DP2. Context is constructed, not dumped.** A policy-governed projection of canonical state, reproducible and inspectable.
+- **DP3. Events are first-class.** Durable history is the source of truth; state is derived.
+- **DP4. Memory is a topology.** One vector store does not fit all.
+- **DP5. Generation and verification are separable.**
 - **DP6. Capabilities are negotiated.** Agents request capabilities, not implementations.
-- **DP7. Chat is a view.** The conversation is one projection over runtime state, alongside DevTools and other UIs; it is never the state itself.
-- **DP8. Intent is the primary object.** Not the page, not the prompt, not the transcript.
+- **DP7. Chat is a view.** One projection among several.
+- **DP8. Intent is the primary object.**
+- **DP9. Spec is owned by the user, status by the system.** _(new)_
+- **DP10. Every piece of context has an origin.** _(new)_
+- **DP11. Stable things first.** Context is laid out by volatility because inference caches reward stable prefixes. _(new)_
+- **DP12. Control is mandatory, cognition is optional.** _(new)_
 
-### 3.2 Layer model
+### 6.2 Layer model
 
-| Layer | Question answered | Main components |
-|---|---|---|
-| 1. Intent | What does the user want? | Intent workspace, IOM |
-| 2. Runtime | How is work coordinated? | Scheduler, agent lifecycle, event store, context engine, policies |
-| 3. Capabilities | What can the system do? | Capability registry, skills, semantic browser APIs, tools |
-| 4. Models | What computes inference? | Model router, local and cloud model runtimes |
-| 5. State / memory / knowledge | What does the system know, remember, observe? | Event log, projections, memory tiers, knowledge providers |
+| Layer                         | Question answered                                 | Main components                                                    |
+| ----------------------------- | ------------------------------------------------- | ------------------------------------------------------------------ |
+| 1. Intent                     | What does the user want, under which constraints? | Intent workspace, parser, IOM, constraint model                    |
+| 2. Runtime                    | How is work coordinated and secured?              | Scheduler, lifecycle, event store, context engine, security kernel |
+| 3. Capabilities               | What can the system do?                           | Capability registry, skills, semantic capability layer             |
+| 4. Models                     | What computes inference?                          | Model router, local and cloud model runtimes                       |
+| 5. State / memory / knowledge | What does the system know, remember, observe?     | Event log, projections, memory tiers, knowledge providers          |
 
-Layer 5 is not beneath the others; it supports all of them.
+Layer 5 supports all the others.
 
-### 3.3 Core runtime loop
+### 6.3 Core runtime loop
 
-Every subsequent chapter elaborates one stage of this loop:
-
-```text
-                  User intent (natural language / multimodal)
-                              ↓
-                  ┌───────────────────────┐
-                  │          IOM          │ goals · constraints · subgoals
-                  │  Intent Object Model  │ agents · evidence · decisions
-                  └───────────┬───────────┘ artifacts · state
-                              ↓
-                  Context construction (selectors over state, memory, knowledge, events)
-                              ↓
-                  Agent / planner proposes operations  ──→  runtime validates → commands
-                              ↓
-                  ┌───────────────────────┐
-                  │       Scheduler       │ lifecycle · concurrency · budgets · escalation
-                  └───────────┬───────────┘
-             ┌────────────────┼────────────────┐
-             ↓                ↓                ↓
-        agent worker     tool worker    verification worker
-             ↓                ↓                ↓
-        capability       capability       capability
-             └────────────────┼────────────────┘
-                              ↓
-                  Model router → model runtime(s) (local small / specialist / frontier)
-                              ↓
-                  evidence / results / artifacts
-                              ↓
-                  events → event store → projection → IOM update → repeat
-                              │
-                              └──→ views: chat · DevTools · user UI
+```mermaid
+flowchart TD
+  U["User utterance<br/>(natural language, multimodal)"] --> PA["Intent parser<br/>(proposal + recovery rules)"]
+  PA --> CF{"Spec confirmed?"}
+  CF -->|"no: clarify, show intent diff"| U
+  CF -->|yes| IOM["IOM<br/>spec + status"]
+  IOM --> CAS["Constraint cascade"]
+  CAS --> CTX["Context construction<br/>stable prefix + selected tail"]
+  CTX --> AG["Agent proposes operations"]
+  AG --> VAL["Runtime validates into commands"]
+  VAL --> SCH["Scheduler<br/>lifecycle, concurrency, budgets, escalation"]
+  SCH --> W1["Agent worker"]
+  SCH --> W2["Tool worker"]
+  SCH --> W3["Verification worker"]
+  W1 --> MR["Model router and model runtimes"]
+  W2 --> CAP["Capabilities"]
+  W3 --> CAP
+  MR --> EV["Evidence, results, artifacts"]
+  CAP --> EV
+  EV --> ES[("Event store")]
+  ES -->|project| IOM
+  ES --> VW["Views: chat, DevTools, oversight tree"]
 ```
 
-### 3.4 Runtime objects
+### 6.4 Runtime objects
 
-The runtime reifies six kinds of object. Each has identity, lifecycle and an inspectable structure.
+| Object            | Contains                                                                                                                  | Browser analogue |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------- | ---------------- |
+| **Profile**       | Identity, preferences, permissions, long-term memory, installed skills, model pool and policies, knowledge, event history | Browser profile  |
+| **Session (tab)** | One intent, its IOM, agent graph, working context and memory, artifacts, event stream, view                               | Tab + page       |
+| **Agent**         | Identity, role, state machine, capability requirements, context and resource policy, permissions                          | Worker           |
+| **Worker**        | Isolated unit of concurrent execution hosting an agent, tool or model call                                                | Process / worker |
+| **Capability**    | Identity, schemas, permissions, side effects, risk level, approval requirements, audit events, implementation             | Web API          |
+| **Skill**         | Versioned package of capabilities, context providers and presets                                                          | Extension        |
+| **Origin**        | Identity of whoever contributed a piece of context or a value                                                             | Origin           |
 
-| Object | Contains | Browser analogue |
-|---|---|---|
-| **Profile** | Identity, preferences, permissions, long-term memory, installed skills, model pool and policies, local knowledge, projects, event history, sessions | Browser profile |
-| **Session (tab)** | One intent, its IOM, agent graph, working context, working memory, browser state, artifacts, event stream, UI view | Tab + page |
-| **Agent** | Identity, role, state machine, capability requirements, context policy, resource policy, memory access, model-selection policy, permissions | Web worker / service worker |
-| **Worker** | Isolated unit of concurrent execution hosting an agent, tool or model call | Process / worker |
-| **Capability** | Identity, description, input/output schema, permissions, side effects, risk level, approval requirements, audit events, implementation | Web API |
-| **Skill** | Versioned package bundling capabilities, context providers, configuration presets | Extension |
+A tab is an intent workspace, not an agent.
 
-A tab is an **intent workspace**, not an agent. Several agents collaborate inside one tab; all tabs share the profile.
+### 6.5 Conceptual architecture
 
-### 3.5 Full conceptual architecture
-
-```text
-┌───────────────────────────────────────────────────────────────────────┐
-│                        AI BROWSER / INTENT PLATFORM                   │
-│  ┌─────────────────────────────────────────────────────────────────┐  │
-│  │ PROFILE  identity · preferences · permissions · memory          │  │
-│  │          skills · model policies · knowledge · history          │  │
-│  └───────────────────────────────┬─────────────────────────────────┘  │
-│  ┌───────────────────────────────┴─────────────────────────────────┐  │
-│  │ INTENT WORKSPACES   Tab A        Tab B        Tab C             │  │
-│  │                     Intent A     Intent B     Intent C          │  │
-│  │                        └────────────┼────────────┘              │  │
-│  │                                   IOM                           │  │
-│  └───────────────────────────────┬─────────────────────────────────┘  │
-│                ┌─────────────────┼─────────────────┐                  │
-│           State / CQRS      Context Graph      Event Store            │
-│                │           memory · knowledge      │                  │
-│                └─────────────────┼─────────────────┘                  │
-│                            RUNTIME SCHEDULER                          │
-│              agent workers · tool workers · verification workers      │
-│                                  │                                    │
-│  ┌───────────────────────────────┴─────────────────────────────────┐  │
-│  │ CAPABILITY LAYER  search · browser · filesystem · git · APIs    │  │
-│  │                   calendar · SQL · payments · code execution    │  │
-│  └───────────────────────────────┬─────────────────────────────────┘  │
-│                            MODEL ROUTER                               │
-│              small local · large local · specialist · frontier        │
-│                            MODEL RUNTIMES (inference, KV cache, GPU)  │
-│  ┌─────────────────────────────────────────────────────────────────┐  │
-│  │ BROWSER RUNTIME  CEF/Chromium · tabs · DOM · network · storage  │  │
-│  │                  workers · sandbox · permissions · extensions   │  │
-│  └─────────────────────────────────────────────────────────────────┘  │
-└───────────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+  subgraph PLAT["AI browser / intent platform"]
+    PROF["Profile<br/>identity, preferences, permissions, memory, skills, model policies"]
+    subgraph WS["Intent workspaces (tabs)"]
+      TA["Intent A"]
+      TB2["Intent B"]
+      TC["Intent C"]
+    end
+    OM["Object models<br/>IOM, constraint model, oversight tree"]
+    ST["State / CQRS"]
+    CG["Context engine<br/>memory, knowledge"]
+    EVS[("Event store")]
+    SCH["Runtime scheduler<br/>agent, tool, verification workers"]
+    SEC["Security kernel<br/>origins, taint, activation"]
+    CAPL["Capability layer<br/>search, browser, filesystem, git, APIs, payments, code execution"]
+    MR["Model router"]
+    MRT["Model runtimes<br/>small local, large local, specialist, frontier"]
+    BR["Browser runtime (CEF/Chromium)<br/>tabs, DOM, network, storage, workers, sandbox"]
+  end
+  PROF --> WS --> OM
+  OM --> ST
+  OM --> CG
+  OM --> EVS
+  ST --> SCH
+  CG --> SCH
+  EVS --> SCH
+  SCH --> SEC --> CAPL
+  SCH --> MR --> MRT
+  CAPL --> BR
 ```
 
 ---
 
-## 4. The Intent Object Model
+## 7. The Intent Object Model
 
-### 4.1 Motivation: the missing centre
+_Maturity M1 · research potential high._
 
-Before the IOM was introduced in the design, the architecture already had agents, models, tools, state, context, memory, events, a scheduler and a browser. What it lacked was a single semantic object connecting them. Every subsystem talked to every other: agents to state, agents to tools, agents to memory, agents to the browser. The IOM replaces that mesh with a hub. It is the object that the context engine reads from, that agents propose changes to, that the scheduler reacts to, that DevTools inspect and that the chat renders.
+### 7.1 Motivation: the missing centre
 
-The guiding question was: if a browser tab represents one user intent and a graph of workers collaborates to fulfil it, what is the equivalent of the DOM?
+Before the IOM, the architecture had agents, models, tools, state, memory, events, a scheduler and a browser, and every subsystem talked to every other. The IOM replaces that mesh with a hub. The context engine reads from it, agents propose changes to it, the scheduler reacts to it, DevTools inspect it and chat renders it.
 
-### 4.2 Definition and comparison with the DOM
+### 7.2 Definition and comparison with the DOM
 
-> The IOM is the runtime's shared, inspectable object graph representing an active intent: its goals, constraints, subgoals, agents, dependencies, evidence, decisions, state and artifacts.
+> The IOM is the runtime's shared, inspectable object graph representing an active intent: what is wanted (`spec`) and what the system has derived and done about it (`status`).
 
-It is a living runtime representation, not a natural-language prompt.
+| DOM                                                  | IOM                                                                  |
+| ---------------------------------------------------- | -------------------------------------------------------------------- |
+| HTML is parsed into the DOM by a specified algorithm | An utterance is parsed into `spec` by a specified procedure (7.3)    |
+| Represents document structure                        | Represents intent and work structure                                 |
+| Nodes                                                | Goals, acceptance criteria, subgoals, evidence, decisions, artifacts |
+| Attributes                                           | Metadata; constraints live in the constraint model                   |
+| DOM events                                           | Intent events                                                        |
+| Scripts mutate the DOM                               | Agents _propose_ operations; the runtime commits                     |
+| Layout and paint are derived                         | `status` is derived (7.9)                                            |
+| DevTools inspect the DOM                             | Intent DevTools inspect the IOM                                      |
+| Accessibility APIs consume a derived tree            | Oversight tools consume the oversight tree                           |
+| Extensions observe and manipulate                    | Skills observe and propose                                           |
 
-| DOM | IOM |
-|---|---|
-| Represents UI/application structure | Represents intent/work structure |
-| Nodes | Goals, subgoals, tasks, artifacts |
-| Attributes | Constraints, metadata |
-| DOM events | Intent events |
-| JavaScript mutates the DOM | Agents propose intent operations |
-| Browser renders the DOM | Runtime executes the intent graph |
-| DevTools inspect the DOM | Intent DevTools inspect the IOM |
-| Accessibility APIs consume the DOM | Agents, tools and context engine consume the IOM |
-| Extensions observe and manipulate the DOM | Skills observe and manipulate the IOM |
-| Platform contract: HTML → DOM → JS/Web APIs → rendering, network, storage | Platform contract: intent → IOM → agents/runtime APIs → models, tools, memory, browser |
+### 7.3 Parsing: from utterance to intent
 
-IOM plus intent events is to the intelligence runtime what DOM plus DOM events is to the browser.
+_Maturity M1 · research potential high · fixes W1._
 
-### 4.3 Structure: graph, not tree
+The HTML parser is the unsung reason the DOM works. It is specified down to its error recovery, so every engine builds the same tree from the same broken markup. Version 1.0 built the IOM by having a model guess, and validated only that the guess was well-formed.
 
-The natural first sketch is a tree (intent → goals → subgoals → tasks). Dependencies cross branches, so the structure must be a directed graph with typed edges:
+A model still proposes the draft. Everything around the proposal is specified.
 
-```text
-Launch Product
-├── Research Market
-│   ├── Competitors
-│   └── Pricing
-├── Build Product
-│   ├── Frontend
-│   └── Backend
-├── Prepare Launch
-└── Validate
-     ├── depends on → Build Product
-     └── depends on → Research Market
+```mermaid
+flowchart LR
+  U["Utterance"] --> X["Extract<br/>(model proposes draft spec)"]
+  X --> N["Normalise<br/>(schema, typed constraints)"]
+  N --> R{"Required slots<br/>resolved?"}
+  R -->|"no, high risk"| Q["ClarificationRequested"]
+  R -->|"no, low risk"| A["Record assumptions<br/>(quirks mode)"]
+  R -->|yes| D["Intent diff shown to user"]
+  A --> D
+  Q --> U
+  D -->|"confirm = user activation"| S["SpecConfirmed"]
+  D -->|edit| N
 ```
 
-"Intent Object Graph" is the more precise term; "Intent Object Model" is retained because, like "DOM", it names the runtime API and model rather than the data structure.
+- **Required slots per intent type.** As elements have required attributes, an intent type (`purchase/*`, `coding/*`) declares slots that must be resolved.
+- **Standards mode and quirks mode.** In standards mode an unresolved required slot blocks and raises `ClarificationRequested`. In quirks mode the parser fills the slot and records an `Assumption` node with origin `inferred`. The risk tier picks the mode.
+- **Acceptance criteria are nodes.** Every goal carries at least one criterion of kind `test`, `schema`, `verifier` or `human`. `GoalCompleted` is emitted by the runtime when criteria pass, never by an agent's say-so.
+- **The intent diff.** Before the first side-effecting command the runtime renders the parsed spec back to the user: what will count as done, which constraints apply, what was assumed. Confirmation is a user activation (12.8). AP2's chain from Intent Mandate to Cart Mandate is this pattern in one domain [AP2].
+- **Parser tests at build time.** Paraphrasing an utterance must yield an equivalent spec; rendering a spec to text and parsing it again must round-trip (9.9).
 
-### 4.4 Minimal schema and operations
+Open: recovery rules can be specified; whether a model follows the user's meaning cannot. The diff moves that risk in front of the user instead of removing it.
 
-A conceptual TypeScript shape, deliberately small:
+### 7.4 Spec and status; graph, not tree
+
+_Fixes W2._
+
+```text
+intent.spec    written only by user-confirmed commands
+intent.status  written only by the runtime, as a projection of events
+```
+
+This is Kubernetes' split, and it has the same consequence: the scheduler is a reconciliation loop driving `status` toward `spec`. If the user edits `spec`, nothing is patched by hand; the affected parts of `status` are invalidated and re-derived (7.9).
+
+Dependencies cross branches, so `status.plan` is a directed graph with typed edges.
+
+```mermaid
+flowchart TD
+  L["Launch product"] --> RM["Research market"]
+  L --> BP["Build product"]
+  L --> PLN["Prepare launch"]
+  L --> VA["Validate"]
+  RM --> CO["Competitors"]
+  RM --> PR["Pricing"]
+  BP --> FE["Frontend"]
+  BP --> BE["Backend"]
+  VA -.->|"depends on"| BP
+  VA -.->|"depends on"| RM
+```
+
+"Intent Object Graph" is the more precise term; "Intent Object Model" is kept because, like "DOM", it names the API.
+
+### 7.5 Schema and operations
 
 ```ts
 interface Intent {
   id: string;
-  goal: Goal;
-  constraints: Constraint[];
-  state: IntentState;
-  subgoals: Subgoal[];
-  agents: AgentRef[];
+  schema: 'iom/2.0';
+  version: number;
+  spec: IntentSpec; // user-owned
+  status: IntentStatus; // system-owned, derived
+}
+interface IntentSpec {
+  goals: Goal[];
+  constraints: ConstraintDeclaration[]; // resolved by the cascade (Chapter 8)
+  assumptions: Assumption[];
+  confirmedBy?: ActivationRef;
+}
+interface Goal {
+  id: string;
+  description: string;
+  acceptance: AcceptanceCriterion[];
+  priority?: number;
+}
+interface AcceptanceCriterion {
+  id: string;
+  kind: 'test' | 'schema' | 'verifier' | 'human';
+  check: CheckRef;
+}
+interface Assumption {
+  id: string;
+  slot: string;
+  value: unknown;
+  origin: Origin;
+  confirmed: boolean;
+}
+
+interface IntentStatus {
+  phase: IntentPhase;
+  plan: Subgoal[];
   dependencies: Dependency[];
+  agents: AgentRef[];
   evidence: EvidenceRef[];
   decisions: Decision[];
   artifacts: ArtifactRef[];
-  metadata: IntentMetadata;
+}
+interface Subgoal {
+  id: string;
+  goal: string;
+  status: TaskStatus;
+  dependsOn: string[];
+  assignedAgent?: string;
+  version: number;
+  contained?: boolean;
+}
+interface Evidence {
+  id: string;
+  origin: Origin;
+  contentRef: Hash;
+  observedAt: string;
+  verifiedAt?: string;
+  status: EpistemicStatus;
+  independence?: Independence;
+}
+type EpistemicStatus = 'observed' | 'inferred' | 'verified' | 'stale' | 'contradicted';
+interface Decision {
+  id: string;
+  proposal: string;
+  rationale?: string;
+  dependsOn: string[];
+  status: 'proposed' | 'accepted' | 'rejected' | 'invalidated';
+}
+interface ArtifactRef {
+  id: string;
+  type: string;
+  location: string;
+  producedBy: string;
+  taint: Origin[];
+}
+interface Origin {
+  kind: 'user' | 'profile' | 'runtime' | 'skill' | 'tool' | 'web';
+  id: string;
 }
 
-interface Goal       { id: string; description: string; status: GoalStatus; priority?: number; }
-interface Constraint { id: string; type: string; value: unknown; severity?: "soft" | "hard"; }
-interface Subgoal    { id: string; goal: string; status: TaskStatus; dependsOn: string[]; assignedAgent?: string; }
-interface Evidence   { id: string; source: string; contentRef: string; observedAt: string;
-                       verifiedAt?: string; confidence?: number; }
-interface Decision   { id: string; proposal: string; rationale?: string; evidence: string[];
-                       status: "proposed" | "accepted" | "rejected"; }
-interface ArtifactRef{ id: string; type: string; location: string; producedBy: string; }
+interface Command {
+  op: string;
+  target: string;
+  readVersion: number;
+  causation: EventId[];
+  activation?: ActivationRef;
+}
 ```
 
-Agents never mutate the graph directly. They invoke intent operations, which are validated into commands:
+Agents never mutate the graph. They invoke operations, which the runtime validates into commands:
 
 ```text
-intent.create()            intent.attachEvidence()
-intent.addGoal()           intent.proposeDecision()
+intent.parse()             intent.attachEvidence()
+intent.confirmSpec()       intent.proposeDecision()
 intent.addConstraint()     intent.acceptDecision()
 intent.createSubgoal()     intent.createArtifact()
 intent.assignAgent()       intent.requestVerification()
 intent.requestCapability() intent.block() · intent.escalate() · intent.complete()
 ```
 
-### 4.5 The IOM as a projection: CQRS and event sourcing
+### 7.6 The IOM as a projection: CQRS and event sourcing
 
-The IOM is not an in-memory JSON object. It is a projection over an event stream:
+_Maturity M2–M3 · research potential medium._
 
-```text
-agent proposes operation
-        ↓
-runtime validator (schema, authorisation, budget, dependency rules)
-        ↓ accept / reject
-command handler
-        ↓
-event  →  event store (append-only)
-        ↓
-projection
-        ↓
-IOM  →  context engine · scheduler · agents · DevTools · chat
-```
+The IOM is a projection over an event stream: proposal → validator → command handler → event → append-only store → projection → IOM → consumers (diagram in 2.3).
 
-**Event taxonomy.** The following families cover the lifecycle; the exact set will evolve.
+**Event taxonomy.**
 
 ```text
-Intent:        IntentCreated · IntentPaused · IntentResumed · IntentEscalated
-               IntentCompleted · IntentFailed
+Intent:        IntentParsed · SpecConfirmed · ClarificationRequested · AssumptionRecorded
+               IntentPaused · IntentResumed · IntentEscalated · IntentCompleted · IntentFailed
 Goal:          GoalAdded · GoalUpdated · GoalCompleted
 Constraint:    ConstraintAdded · ConstraintUpdated · ConstraintViolated
 Subgoal:       SubgoalCreated · SubgoalUpdated · SubgoalBlocked · SubgoalCompleted
-Agent:         AgentAssigned · AgentStarted · AgentPaused · AgentResumed
-               AgentStopped · AgentFailed
+Agent:         AgentAssigned · AgentStarted · AgentPaused · AgentResumed · AgentStopped · AgentFailed
 Capability:    CapabilityRequested · CapabilityGranted · CapabilityDenied · CapabilityExecuted
 Context:       ContextRequested · ContextBuilt · ContextExpanded · ContextInvalidated
 Model:         ModelSelected · ModelInvoked · ModelCompleted · ModelFailed · ModelEscalated
 Evidence:      EvidenceProduced · EvidenceAttached · EvidenceVerified · EvidenceContradicted
-Decision:      DecisionProposed · DecisionAccepted · DecisionRejected
+Decision:      DecisionProposed · DecisionAccepted · DecisionRejected · DecisionInvalidated
 Artifact:      ArtifactCreated · ArtifactUpdated · ArtifactVerified
 Verification:  VerificationRequested · VerificationPassed · VerificationFailed
+Concurrency:   CommandRejectedStale · ForkCreated · ForkCommitted · ForkDiscarded
+Security:      ActivationGranted · ActivationConsumed · TaintDeclassified · PolicyViolationReported
 ```
 
-**Time travel.** Projecting events `1..N` yields the IOM at time *T*. This answers questions no transcript can: why did the agent decide this, what did it know at the time, which model and context were used, when did the task block, what triggered escalation.
+**Time travel.** Projecting events `1..N` yields the IOM at time _T_: why the agent decided this, what it knew, which model and context were used, what triggered escalation.
 
-**Invocation snapshots.** Every model call records model and version, system policy, agent state, intent snapshot, context snapshot, tool outputs, relevant events, resource policy and timestamp. Reproducibility of probabilistic systems is never perfect; reproducibility of *inputs* is achievable and is the precondition for post-hoc analysis.
+**Invocation snapshots.** Every model call records model and version, policy, agent state, intent and context snapshot, tool outputs, resource policy and timestamp. Reproducibility of _inputs_ is achievable and is the precondition for analysis. Snapshots are stored by content hash, so a context chunk used by a thousand calls is stored once.
 
-### 4.6 The IOM as coordination substrate
+**Schema evolution.** The model is IndexedDB's: a store has a version, and an upgrade handler migrates old data. Events are immutable; registered _upcasters_ translate old event versions on read.
 
-Multi-agent systems built on point-to-point messaging (A talks to B, B to C, A to C) are hard to inspect and impossible to replay. The IOM replaces messaging with shared state:
+### 7.7 Concurrency: versions, transactions, forks
 
-```text
-Agent A ─┐
-Agent B ─┼──→ IOM / event graph ←── scheduler
-Agent C ─┘
-```
+_Maturity M1 · research potential high · fixes W5._
 
-Agents observe relevant intent state, publish evidence, propose decisions, update subgoals, request capabilities and emit events. The pattern is a disciplined form of the classical blackboard architecture, with the difference that every write is a validated command and every read can be scoped by the context engine. It yields inspectability, decoupling, replayability, auditability and concurrency control for free.
+Version 1.0 claimed concurrency control came for free. A model call takes seconds to minutes, so every proposal is computed against an old snapshot. The platform already has the tools.
 
-### 4.7 Epistemic state and provenance
+| Platform mechanism                     | Runtime use                                                                                                              |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `ETag` / `If-Match`                    | Every node has a `version`; every command carries `readVersion`. A stale command is rejected with `CommandRejectedStale` |
+| IndexedDB transactions                 | A command batch names its scope and mode, commits atomically, aborts as a whole                                          |
+| Web Locks API (`shared` / `exclusive`) | Named locks on IOM subtrees across agents and tabs                                                                       |
+| `DocumentFragment`                     | Agents plan in a **fork** and attach it atomically, or the fork is discarded                                             |
+| `AbortController`                      | In-flight work carries a signal; when its inputs are invalidated the runtime aborts it                                   |
+| Navigation API                         | A newer user instruction supersedes the pending one instead of queueing behind it                                        |
 
-Browser state is comparatively objective: a cookie either exists or it does not. An intelligence runtime deals in beliefs. A fact must therefore not be stored as a bare value but as an epistemic record:
+Semantic conflict has a definition: the validator evaluates the resolved constraints against the _would-be_ state, not against each command alone. Two individually valid commands that jointly break a constraint fail at commit. Reads within one scheduler tick see one snapshot.
 
-```text
-EpistemicState
-├── proposition
-├── value
-├── confidence
-├── evidence[]
-├── observed_at
-└── verified_at
-```
+### 7.8 Epistemic state, provenance and retraction
 
-This lets the runtime distinguish known, observed, inferred, believed, verified, stale and contradicted information. Every meaningful artifact additionally carries a provenance graph:
+_Maturity M1 · research potential high · fixes W7._
+
+Browser state is comparatively objective. An intelligence runtime deals in beliefs. Version 1.0 stored a `confidence` number with no semantics. Version 2.0 stores a status with an evidence chain, as a discriminated union. A numeric score is admissible only with a reference to how it was calibrated.
+
+Every artifact carries a provenance graph:
 
 ```text
 Artifact
-├── produced_by  → agent
-├── model        → model version
-├── context      → context snapshot
-├── based_on     → evidence
-├── verified_by  → verifier
-└── caused_by    → events
+├── produced_by  -> agent
+├── model        -> model version
+├── context      -> context snapshot (hash)
+├── based_on     -> evidence
+├── origins      -> every origin that influenced it (taint)
+├── verified_by  -> verifier, with independence record
+└── caused_by    -> events
 ```
 
-Neither epistemic state nor provenance exists in the browser; both are among the new primitives the analogy does not supply.
+**Retraction.** A decision is a _computed value_ over evidence, in the sense of Angular's `computed()`: its dependencies are tracked. When evidence turns `stale` or `contradicted`, its dependents are marked dirty, `DecisionInvalidated` is emitted and the scheduler re-verifies or reopens them. This is truth maintenance implemented as a reactive graph.
 
-### 4.8 Standardisation opportunity
+### 7.9 The derivation pipeline and invalidation classes
 
-If the IOM proves useful, it could become a platform-level interface in the way the DOM did: a small vocabulary of concepts (intent, goal, constraint, subgoal, agent, capability, evidence, decision, artifact, context, event, verification), operations (create, observe, propose, assign, request, execute, verify, complete, escalate) and events (created, updated, assigned, started, blocked, verified, completed, failed). Independent implementations of agents, model runtimes, browsers, skills, DevTools, storage systems and orchestration frameworks could then interoperate. This is speculative, and Chapter 11 discusses why standards of this kind are hard to establish.
+_Maturity M0–M1 · research potential high._
+
+A browser turns DOM and CSSOM into pixels through style, layout, paint and composite, and it knows for every change the earliest stage that must rerun. That knowledge is why animating `transform` is cheap and changing `width` is not. The runtime gets the same pipeline.
+
+```mermaid
+flowchart LR
+  P["Parse<br/>spec"] --> C["Cascade<br/>resolved constraints"] --> L["Plan<br/>subgoals, assignment"] --> X["Execute<br/>capabilities, models"] --> O["Compose<br/>result, oversight tree"]
+```
+
+| Change                              | Earliest stage dirtied                   | Browser analogue         |
+| ----------------------------------- | ---------------------------------------- | ------------------------ |
+| Goal or acceptance criterion edited | Parse                                    | DOM mutation             |
+| Hard constraint added or tightened  | Cascade, then plan for matching subgoals | Geometry-changing style  |
+| Evidence contradicted               | Verification of dependents only          | Paint-only invalidation  |
+| Priority or deadline changed        | Scheduling only                          | Compositor-only property |
+| New evidence attached               | Nothing, unless a decision depends on it | Off-screen change        |
+
+Three practices come along. **Batching:** an agent that alternates IOM writes with reads forces a re-plan per read, which is layout thrashing. Operations are batched per tick, in the read and write phases Angular's `afterRender` hooks formalise. **Containment:** a subgoal marked `contained` promises that its internals cannot affect siblings, as CSS `contain` does. **Honest cost:** the table is the answer to "the IOM is bureaucracy", because it makes cost proportional to the change.
+
+### 7.10 Coordination and encapsulation
+
+Point-to-point messaging between agents is hard to inspect and impossible to replay. The IOM replaces it with shared state: a blackboard architecture in which every write is a validated command and every read is scoped by the context engine. It yields inspectability, decoupling, replayability and auditability. Concurrency control is earned in 7.7.
+
+Not every agent step belongs on the blackboard. Web components supply the vocabulary.
+
+|                 | **Light agent**              | **Shadow agent**                                                    |
+| --------------- | ---------------------------- | ------------------------------------------------------------------- |
+| Analogue        | Light DOM                    | Shadow DOM                                                          |
+| Granularity     | Every step is an IOM command | Runs its own loop in a sandbox under a fixed grant                  |
+| Visible outside | Everything                   | Declared parts, composed events, the result with an evidence bundle |
+| Inputs          | IOM slices                   | Attributes and slotted content only                                 |
+| Inspectability  | Full                         | `open` (DevTools can look inside) or `closed`                       |
+| Use for         | High-risk, multi-party work  | Bounded cognitive work: exploring a codebase, drafting, searching   |
+
+Rules: inherited constraints pierce the shadow boundary and non-inherited ones do not, as CSS inheritance behaves (8.3). Events crossing it are retargeted to the host subgoal. Regulated deployments should require `open`. A shadow agent is where the cognitive plane lives: inside it the model may think however it likes.
+
+### 7.11 Standardisation
+
+If the IOM proves useful it could become a platform interface as the DOM did. Version 1.0 doubted the incentives. Two things have changed the picture: a neutral venue now hosts MCP, A2A, AGENTS.md and Agent Skills under one roof [AAIF], and the web's own history suggests a better route than a specification.
+
+- **Write the interface in an IDL.** Every web object model is specified in WebIDL, and conformance tests are generated from it.
+- **Start as a test suite.** Web Platform Tests and the Interop effort converged engines more effectively than prose ever did.
+- **Keep it small.** Nodes, operations, events, origins. Domain vocabularies are namespaced extensions.
 
 ---
 
-## 5. Context Engineering
+## 8. The Constraint Model: A Cascade for Policy
 
-### 5.1 Context is a view
+_Maturity M1 · research potential high._
 
-Model context must never be canonical state. It is derived:
+### 8.1 Why "nearest wins" is not enough
+
+Version 1.0 resolved configuration as ESLint does: later and nearer overrides earlier. That is right for build configuration. It is wrong for policy, where several parties with different authority make claims about the same node: the platform, the enterprise, a skill author, the user. Today's harnesses ask the model to arbitrate. Research on instruction hierarchies shows that models do this unreliably once there are more than a few tiers [ManyIH]. The cascade was designed for this situation and is deterministic. It runs in the runtime; the model sees only the result.
+
+### 8.2 Constraint sheets and registered properties
+
+Constraints are declared in sheets, in their own file type, with selectors over the IOM.
+
+```css
+/* enterprise.constraints: user-agent origin */
+@layer platform, skills, project;
+
+intent {
+  privacy: trusted-cloud;
+  budget: 2 EUR;
+}
+subgoal[risk='high'] {
+  verification: required !important;
+}
+capability[side-effect='money'] {
+  approval: user-activation !important;
+}
+
+@layer skills {
+  agent.researcher subgoal {
+    model-tier: small;
+    freshness: 1h;
+  }
+}
+
+@container intent (budget < 0.20 EUR) {
+  subgoal {
+    model-tier: small;
+    parallelism: 1;
+  }
+}
+```
+
+Every property is registered, as CSS `@property` registers a custom property, with a syntax, an inheritance flag, an initial value and a _check_ that decides violation. This replaces `Constraint { type: string; value: unknown }`.
+
+```css
+@property budget {
+  syntax: '<money>';
+  inherits: true;
+  initial-value: 0 EUR;
+  check: 'runtime/budget';
+}
+@property privacy {
+  syntax: '<privacy-tier>';
+  inherits: true;
+  initial-value: local-only;
+  check: 'runtime/egress';
+}
+@property approval {
+  syntax: '<approval>';
+  inherits: false;
+  initial-value: none;
+  check: 'runtime/activation';
+}
+```
+
+Values are typed objects, in the spirit of the CSS Typed OM.
+
+### 8.3 The resolution algorithm
+
+| Cascade concept                   | Constraint model                                                                                                           |
+| --------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| **Origins**                       | _User-agent_: platform and enterprise policy. _Author_: skill and agent packages. _User_: the person                       |
+| **Normal precedence**             | user-agent < user < author: a skill's specific instruction beats a general user preference, which beats a platform default |
+| **`!important` reverses origins** | author < user < user-agent: a user's hard constraint beats any skill's insistence; a platform hard limit beats everything  |
+| **Cascade layers**                | Skill defaults sit in a low layer, so a host can always override them                                                      |
+| **Specificity**                   | Scope precision: task beats agent beats session                                                                            |
+| **Inheritance**                   | Per property: `privacy` and `budget` inherit down the subgoal graph; `approval` does not                                   |
+| **`revert`**                      | Roll back to what the previous origin said                                                                                 |
+| **Custom properties**             | Policy tokens (`--max-retries`) shared across sheets                                                                       |
+| **Container queries**             | Conditions on the resource envelope: budget, connectivity, context-window size                                             |
+| **Computed value**                | The effective constraint per node, recorded with the winning declaration                                                   |
+
+The importance reversal gives two things from one mechanism. The origin that supplies the weakest defaults also supplies the strongest limits. Enterprise policy can be a gentle default sheet and a set of non-negotiable rules at once, with no special cases in code.
+
+### 8.4 Encapsulation and adoption
+
+Shadow agents (7.10) follow the platform's rules. Inherited properties and tokens cross the boundary. A sub-intent can _adopt_ shared sheets as shadow roots adopt constructable style sheets. Whatever a shadow agent exposes for outside control is a declared part.
+
+### 8.5 Relation to DI attenuation
+
+The cascade decides _which value applies_. Attenuation (11.3) decides _who may bind what_. A rule both systems share: along the scope tree, hard limits only tighten.
+
+---
+
+# Part IV: Build Time
+
+## 9. Build Time
+
+### 9.1 Why frontend engineering, and why two phases
+
+Part of the motivation was the worry that code generation makes frontend engineering obsolete. The conclusion is more specific: code generation moves the discipline's value upward, from producing UI code to designing composable runtime abstractions. Frontend engineers think in two phases, and the AI side is weakest in the first.
+
+```mermaid
+flowchart LR
+  subgraph BT["Build time"]
+    direction LR
+    b1["Resolve<br/>registry + lockfile"] --> b2["Check<br/>IDL, contracts"] --> b3["Lint<br/>harness, constraints"] --> b4["Bundle<br/>chunks, critical context"] --> b5["Test<br/>evals, coverage, mutation"] --> b6["Release<br/>signed, attested"]
+  end
+  subgraph RT["Run time"]
+    direction LR
+    r1["Load / resume"] --> r2["Resolve<br/>DI, cascade"] --> r3["Schedule"] --> r4["Execute<br/>models, capabilities"] --> r5["Project IOM"] --> r6["Observe<br/>DevTools, vitals"]
+  end
+  b6 --> r1
+```
+
+| Frontend build                       | Harness build                            | AI maturity |
+| ------------------------------------ | ---------------------------------------- | ----------- |
+| `package.json`, registry, lockfile   | Agent manifest, skill registry, lockfile | M2          |
+| Type check (`tsc`, strict templates) | IDL, capability and fragment contracts   | M1–M2       |
+| Lint (ESLint)                        | Harness and constraint lint              | M1–M2       |
+| AOT compile                          | Compiled context plans                   | M1          |
+| Bundle, tree-shake, split, budgets   | Context chunks, pruning, budgets         | M2          |
+| Critical CSS inlining                | Critical-context extraction              | M1–M2       |
+| Tests, snapshots, e2e                | Evals, semantic snapshots, replay        | M2–M3       |
+| Prerender (SSG)                      | Prerendered intents                      | M1          |
+| `ng update` migrations               | Model and skill migrations               | M1          |
+| Signed artefact                      | Versioned, signed agent release          | M2          |
+
+### 9.2 Three languages, three files
+
+A harness that keeps its prompt in a template literal, its policy in an `if` statement and its lifecycle in a `while` loop has one untoolable file. We prescribe separate artefacts:
 
 ```text
-canonical runtime state (IOM, state, memory, knowledge, events)
-        ↓ context policy
-        ↓ context selectors
-model context (reproducible · inspectable · configurable · task- and model-specific)
+agent.manifest.yaml     dependencies, peer model capabilities (15.5)
+context.config.js       declarative context composition (9.3)
+*.constraints           constraint sheets (8.2)
+agent.machine.ts        lifecycle statechart (11.1)
+prompts/*.md            prompt templates, one per file, versioned
 ```
 
-The frontend analogue is exact: a selector derives from a global store only the slice a component needs, memoised, recomputed on change. Context selectors derive from canonical state only what a given agent needs for a given task. The failure mode they prevent is the context window becoming the database.
+Each has its own linter and diff, as Angular keeps template, styles and class apart.
 
-### 5.2 Context providers and the context engine
+### 9.3 Declarative context composition: ESLint as reference architecture
 
-A context provider is an adapter that hides its storage technology (SQL, vector store, graph database, filesystem, browser, API, event store) behind a uniform interface:
+_Maturity M2 · research potential medium to high._
 
-```ts
-interface ContextProvider {
-  id: string;
-  supports(query: ContextQuery): boolean;
-  resolve(query: ContextQuery): Promise<ContextFragment>;
-}
+ESLint's flat configuration is a reference architecture for declarative, composable, overridable, plugin-extended analysis pipelines. Its structure transfers almost one-to-one to context composition.
 
-interface ContextEngine {
-  build(intent: Intent, agent: Agent, policy: ContextPolicy): Promise<ContextSnapshot>;
-}
-```
+**ESLint, reduced to its parts.** A config file exports an array of objects. Each may declare `files`, `languageOptions` (parser, ambient `globals`), `plugins` (namespaced packages contributing rules and presets), `rules` (identifier → severity and options), `processors` and `settings`. Later objects override earlier ones for matching files. Presets are ordinary objects spread into the array. A rule is a module with `meta` (including a JSON Schema for its options) and a `create(context)` function returning a visitor over AST node types, optionally using esquery selectors. Rules _report_, may _fix_ or _suggest_. Different parsers produce ESTree-compatible trees, so rules are parser-independent. `--print-config` shows the resolved configuration for one file.
 
-Typical providers: user, project, repository, Git, filesystem, browser, events, semantic memory, knowledge graph, documents, calendar. The engine composes fragments under a policy (budget, privacy, priority, freshness) into a snapshot that is recorded with the invocation. The agent does not know which provider delivered which fragment, and does not need to.
+| ESLint                                  | Context composition                                                                                         |
+| --------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| Config array with override              | Layered context config: profile → project → session → task                                                  |
+| `files` globs                           | Task matchers: task type, intent domain, agent role, risk tier                                              |
+| `languageOptions.parser`                | Fragment schema version (`iom/2.0`); all providers emit schema-compatible fragments                         |
+| `languageOptions.globals`               | Ambient context always present: identity, date, active policies                                             |
+| `plugins` (namespaced)                  | Provider and skill packages (`@context/repository`)                                                         |
+| `rules` with `off`/`warn`/`error`       | Fragment rules with `off`/`optional`/`required`; a required provider that cannot deliver fails construction |
+| Rule options validated by JSON Schema   | Provider options validated at build time                                                                    |
+| `processors`                            | Transformers: chunking, summarisation, redaction, de-duplication                                            |
+| `settings`                              | Shared provider settings                                                                                    |
+| Presets (`recommended`)                 | Archetype presets (`@context-config/coding/recommended`)                                                    |
+| `create(context)` with injected context | `resolve(query)` with an injected runtime handle; providers never reach into global state                   |
+| esquery selectors                       | IOM selectors: "subgoals blocked on evidence older than one hour"                                           |
+| `report` / `fix` / `suggest`            | Emit `ContextViolation` / auto-adjust (lower resolution, drop optional) / propose a decision                |
+| Formatters (stylish, JSON, SARIF)       | Prompt renderers per model family; same snapshot, different serialisation                                   |
+| `--print-config`                        | `runtime context explain <task>`: the Context Inspector                                                     |
+| Inline disable directives               | Per-task exceptions, recorded as events                                                                     |
 
-### 5.3 Memory topology
-
-Browsers already have a memory topology. They do not persist everything in one store; they have sessionStorage, localStorage, IndexedDB, Cache API, cookies, HTTP cache, history and service-worker state, each with different lifetime, scope and consistency. The runtime adopts the same discipline:
-
-| Tier (runtime) | Browser analogue | Semantics |
-|---|---|---|
-| Working context | (in-memory) | Current computation only; rebuilt per task |
-| Session / working memory | sessionStorage | Lives with the intent session |
-| Lightweight preferences and config | localStorage | Small, persistent, low consistency needs |
-| Structured persistent project/agent state | IndexedDB | Transactional, queryable |
-| Reconstructible context, results, artifacts | Cache API / HTTP cache | Disposable; may be evicted |
-| Identity, session, auth metadata | Cookies | Scoped, sensitive |
-| Task and navigation history | History | Temporal, navigable |
-| Background runtime state | Service-worker state | Survives page lifecycle |
-| Semantic memory, durable knowledge | (no analogue) | Curated, retrievable |
-| **Event store** | **(no analogue)** | **Immutable, append-only, source of truth** |
-
-The event store is not a cache and must not be collapsed into generic storage. A plausible physical layout: `runtime-storage/{session,local,indexed,cache,memory,knowledge,events}/`.
-
-### 5.4 Declarative context composition: ESLint as reference architecture
-
-The design calls for context to be configured declaratively: "for this task, construct context from these providers under these policies." The frontend ecosystem already contains a mature system that does exactly this kind of work for a different domain. ESLint's configuration model, especially the flat configuration introduced as the default in version 9, is a reference architecture for declarative, composable, overridable, plugin-extended analysis pipelines. The claim here is that its structure transfers almost one-to-one to context composition.
-
-**ESLint's architecture, reduced to its parts.** An `eslint.config.js` exports an array of configuration objects. Each object may declare `files` (glob matchers deciding which sources it applies to), `languageOptions` (the parser, parser options and ambient `globals`), `plugins` (namespaced packages contributing rules, processors and preset configurations), `rules` (rule identifier → severity and options), `processors` (pre-processors that extract analysable code from other file types), and `settings` (shared data available to all rules). Later objects override earlier ones for matching files; rule maps merge, language options deep-merge. Presets such as `js.configs.recommended` are ordinary config objects spread into the array. A rule is a module with `meta` (type, documentation, JSON Schema for its options, message templates, whether it is fixable) and a `create(context)` function that receives an injected context object and returns a visitor over AST node types, optionally using esquery selectors such as `CallExpression[callee.name="fetch"]`. Rules *report* problems with a severity, may offer *fixes* (applied automatically) or *suggestions* (offered, not applied). Different parsers produce ESTree-compatible trees, so rules are parser-independent. `eslint --print-config file.js` shows the fully resolved configuration for one file.
-
-**The mapping.**
-
-| ESLint | Context composition |
-|---|---|
-| Config array with cascade and override | Layered context config: profile → project → session → task; nearest wins |
-| `files` globs | Task matchers: task type, intent domain, agent role, risk tier |
-| `languageOptions.parser` | Fragment schema version (IOM/1.x); all providers emit schema-compatible fragments |
-| `languageOptions.globals` | Ambient context always present: identity, date, active policies |
-| `plugins` (namespaced) | Context-provider and skill packages, namespaced (`@context/repository`) |
-| `rules` with severity `off`/`warn`/`error` | Fragment rules with `off`/`optional`/`required`; a required provider that cannot deliver fails context construction |
-| Rule options validated by JSON Schema | Provider options validated at build time |
-| `processors` | Transformers: chunking, summarisation, redaction of personal data, de-duplication |
-| `settings` | Shared provider settings |
-| Presets (`recommended`) | Agent archetype presets (`@context-config/coding/recommended`) |
-| Rule `create(context)` with injected context object | Provider `resolve(query)` with injected runtime handle; providers never reach into global state |
-| esquery AST selectors | IOM selectors: "subgoals blocked on evidence older than one hour" |
-| `report` vs `fix` vs `suggest` | Emit `ContextViolation` event vs auto-adjust (truncate, drop optional) vs propose a decision |
-| Formatters (stylish, JSON, SARIF) | Prompt renderers per model family; same snapshot, different serialisation |
-| `--print-config` | `runtime context explain <task>`: the Context Inspector |
-| Inline disable directives | Per-task exceptions, recorded as events for audit |
-
-**What it looks like.** The two configurations below are structurally the same program.
+The two configurations below are structurally the same program.
 
 ```js
 // eslint.config.js
-import js from "@eslint/js";
-import tseslint from "typescript-eslint";
-import importPlugin from "eslint-plugin-import";
+import js from '@eslint/js';
+import tseslint from 'typescript-eslint';
+import importPlugin from 'eslint-plugin-import';
 
 export default [
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
-    files: ["src/**/*.ts"],
+    files: ['src/**/*.ts'],
     plugins: { import: importPlugin },
-    languageOptions: { parser: tseslint.parser, globals: { window: "readonly" } },
+    languageOptions: { parser: tseslint.parser, globals: { window: 'readonly' } },
     rules: {
-      "import/no-cycle": "error",
-      "@typescript-eslint/no-explicit-any": ["warn", { fixToUnknown: true }],
+      'import/no-cycle': 'error',
+      '@typescript-eslint/no-explicit-any': ['warn', { fixToUnknown: true }],
     },
   },
-  { files: ["**/*.test.ts"], rules: { "@typescript-eslint/no-explicit-any": "off" } },
+  { files: ['**/*.test.ts'], rules: { '@typescript-eslint/no-explicit-any': 'off' } },
 ];
 ```
 
 ```js
 // context.config.js
-import coding from "@context-config/coding";
-import repo from "@context/repository";
-import git from "@context/git";
+import coding from '@context-config/coding';
+import repo from '@context/repository';
+import git from '@context/git';
 
 export default [
   ...coding.configs.recommended,
   {
-    tasks: ["coding/*"],
+    tasks: ['coding/*'],
     providers: { repo, git },
-    schema: "iom/1.0",
-    ambient: { identity: "always", activeProject: "always" },
+    schema: 'iom/2.0',
+    ambient: { identity: 'always', activeProject: 'always' },
     fragments: {
-      "repo/relevant-files":  ["required", { maxFiles: 20, ranking: "symbol-graph" }],
-      "git/recent-commits":   ["optional", { limit: 10 }],
-      "memory/decisions":     "required",
+      'repo/conventions': ['required', { chunk: 'project', critical: true }],
+      'memory/decisions': ['required', { chunk: 'intent' }],
+      'repo/relevant-files': ['required', { chunk: 'step', maxFiles: 20, ranking: 'symbol-graph' }],
+      'git/recent-commits': [
+        'optional',
+        { chunk: 'step', limit: 10, resolutions: ['full', 'summary', 'handle'] },
+      ],
     },
-    processors: ["@context/processors/redact-personal-data", "@context/processors/summarise-long"],
-    budget: { maxTokens: 32000, onOverflow: "report" },
+    processors: ['@context/processors/redact-personal-data', '@context/processors/summarise-long'],
+    budget: { maxTokens: 32000, warnAt: 24000, onOverflow: 'lower-resolution' },
   },
   {
-    tasks: ["coding/hotfix"],
-    fragments: { "git/recent-commits": ["required", { limit: 30 }] },
+    tasks: ['coding/hotfix'],
+    fragments: { 'git/recent-commits': ['required', { limit: 30 }] },
     budget: { maxTokens: 64000 },
   },
 ];
 ```
 
-**Pipeline correspondence.** ESLint: sources → parser → AST → rules traverse → messages → formatter. Context engine: sources → providers → IOM-shaped fragments → selectors and fragment rules → context snapshot → prompt renderer. The intermediate representation is the point. ESLint's rules are portable because every parser produces ESTree. Context rules become portable when every provider produces the same fragment schema, which is one more argument for standardising the IOM.
+The new keys are `chunk` (9.6), `critical` (9.7) and `resolutions` (10.6).
 
-### 5.5 Linting the harness itself
+**Pipeline correspondence.** ESLint: sources → parser → AST → rules → messages → formatter. Context engine: sources → providers → IOM-shaped fragments → selectors and rules → snapshot → renderer. ESLint's rules are portable because every parser produces ESTree. Context rules become portable when every provider produces the same fragment schema.
 
-The ESLint analogy has a second application. Agent configurations are programs and can be statically analysed before anything runs. A harness linter would flag, at build time: a `purchase.execute` capability granted without an approval policy; a high-risk task without `verification: required`; required fragments whose minimum size exceeds the token budget; unpinned skill versions; a privacy policy of `local_only` combined with a cloud-only model candidate list; capabilities requested by an agent but provided by no installed skill. None of this requires a model. All of it prevents classes of runtime failure that today are discovered in production transcripts.
+**Least privilege.** An agent declares typed inputs as an Angular component declares `input()`s. The engine binds exactly those slices. What an agent did not declare, it cannot read.
+
+### 9.4 Linting the harness
+
+_Maturity M1–M2 · research potential medium._
+
+Agent configurations are programs and can be analysed before anything runs. A harness linter flags: a `purchase.execute` capability without an approval rule; a high-risk task without `verification: required`; required fragments whose minimum size exceeds the budget; unpinned skills; `local-only` privacy with a cloud-only candidate list; capabilities no installed skill provides; a constraint property used but never registered; a sensitive sink with no Trusted-Types policy (12.5); a volatile fragment assigned to a stable chunk. None of this needs a model.
+
+### 9.5 Type checking and ahead-of-time compilation
+
+_Maturity M1–M2 · research potential high for conformance._
+
+**Contracts.** Capability schemas, fragment schemas and the IOM itself are checked at build time. Epistemic status is a discriminated union, so the compiler forces every consumer to handle `stale` and `contradicted`. Model output is `unknown`, never `any`: it must be narrowed by a verifier before use.
+
+**AOT versus JIT.** Angular moved template compilation to build time and gained errors before deployment. Most harnesses assemble prompts just-in-time by string concatenation. An AOT context compiler turns the context configuration, prompts and constraint sheets into a _context plan_ per task type: resolved providers, chunk order, budgets, the critical set. Run time fills slots. A missing provider is a build error.
+
+**Model capability targets, shims and conformance.** A `browserslist`-style target declares the minimum model capabilities an agent needs. The frontend answer to a missing feature is a polyfill; the counterpart is a **capability shim**: a stable contract, a detection step, an adapter, a fallback and validation. An agent asks for `ExtractStructuredData` and does not know whether a native API, a parser or a model does the work. A polyfill implements defined behaviour and a fallback model may not, so compatibility must be shown by tests.
+
+That requires three things 1.0 lacked:
+
+| Web                                              | Runtime                                                                              |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------ |
+| test262, Web Platform Tests                      | A behavioural **conformance suite per capability contract**                          |
+| Feature detection instead of user-agent sniffing | Probe micro-evals at install time; route on measured capability, never on model name |
+| Baseline / compatibility data                    | A published table of which model families pass which suites                          |
+
+### 9.6 Bundling: tree-shaking, splitting, cache-aware chunks, budgets
+
+_Maturity M2 · research potential medium · fixes W3._
+
+**Tree-shaking.** Context presets and skill bundles are pruned to what the configuration requests. Coverage data makes pruning empirical (9.9).
+
+**Code splitting.** Expensive providers and skills initialise lazily. With one correction: _registering_ a skill's tool definitions and _activating_ them are different things (10.4).
+
+**Source maps.** Provenance is a source map from an output back to the fragments and events that produced it. Priompt already ships prompt-to-source maps [Priompt].
+
+**Cache-aware chunking.** Inference servers reuse computation for a prompt _prefix_ they have seen before (the KV cache), and providers bill cached input far below fresh input. Agents send long prompts and receive short answers, so the cache hit rate dominates cost and latency; practitioners call it the most important production metric and prescribe a stable prefix and append-only context [Manus]. Version 1.0's selector model re-rendered context per step and so destroyed the cache.
+
+Bundlers solved the same problem for browsers. They split vendor code from application code and name chunks by content hash, so that changing one does not invalidate the other. The context bundler does the same, ordered by volatility:
+
+```mermaid
+flowchart LR
+  c1["platform chunk<br/>policy, tool schemas"] --> c2["profile chunk"] --> c3["project chunk"] --> c4["intent chunk<br/>confirmed spec"] --> c5["step tail<br/>selected fragments"]
+```
+
+Each boundary is a cache breakpoint. Selectors may rewrite only the tail. Serialisation is deterministic. The linter rejects a timestamp in a stable chunk.
+
+**Budgets.** Angular's build fails when a bundle exceeds its budget. Context budgets work the same: `warnAt` and `maxTokens` per chunk and per task, enforced in CI.
+
+### 9.7 Critical context: the above-the-fold problem
+
+_Maturity M1–M2 · research potential high._
+
+Critical-CSS inlining finds the rules needed for the first viewport, inlines them, and defers the rest. The Angular CLI does it by default. It is a build-time analysis with a run-time payoff.
+
+An agent's first decision is its first paint. What does the model need for it? Usually far less than it is given.
+
+| Web technique             | Context counterpart                                                            |
+| ------------------------- | ------------------------------------------------------------------------------ |
+| Critical CSS inlined      | **Critical fragments** inlined for the first step; computed from recorded runs |
+| Non-critical CSS deferred | Everything else behind handles the agent can open                              |
+| Render-blocking resources | Providers that block the first token; marked `defer` unless critical           |
+| Purging unused CSS        | Removing fragments with no measured effect (9.9)                               |
+
+Agent Skills' progressive disclosure, metadata first and body on demand, is a precursor [AAIF]. What is missing is the analysis that _computes_ the critical set.
+
+### 9.8 Packages, registries and lockfiles
+
+_Maturity M2 · research potential medium; high for model dependencies._
+
+Frontend development is unimaginable without scoped packages, semantic versioning, lockfiles, `peerDependencies`, integrity hashes, provenance attestations and `npm audit`. The design assumes a skill registry with:
+
+- A manifest declaring provided capabilities, required permissions, required model capabilities as _peer_ dependencies (the host supplies the model), context providers, presets, risk tier and audit events.
+- Semantic versioning for skills, prompts and presets, with a lockfile pinning the exact set a release was evaluated against.
+- Integrity hashes and provenance attestations. Prompt injection via dependency is the compromised package of this ecosystem.
+- An audit database: known injection vectors, over-broad permissions, deprecated model dependencies.
+- Evaluation results published with the package.
+
+**State in November 2026.** Lockfiles, hashes, signing, scanning and SBOM export exist in several tools, and malicious skills have been found in public catalogues [Lock]. The gap moved from absence to fragmentation. The work now is convergence: one resolution algorithm, peer model dependencies, evals in the registry.
+
+**What a lockfile cannot pin (W6).** A lockfile pins bytes. For a hosted model you hold a name.
+
+| Dependency class  | Example                      | Guarantee            | Lockfile records                         |
+| ----------------- | ---------------------------- | -------------------- | ---------------------------------------- |
+| `vendored`        | Local weights                | Byte-identical       | Content hash                             |
+| `pinned-snapshot` | Provider snapshot identifier | Stable until retired | Identifier + **behavioural fingerprint** |
+| `floating`        | An alias such as "latest"    | None                 | Rejected for releases                    |
+
+The fingerprint is the hash of the conformance-suite results at lock time. An audit command re-runs the probes and reports drift. A retired model is this ecosystem's unpublished package, and only `vendored` dependencies are immune.
+
+### 9.9 Testing
+
+_Maturity M2–M3 for evals; M1 for the rest · research potential high._
+
+Unit, integration and end-to-end tests correspond to evals of a capability, an agent against a fixed context, and an intent end to end. Release gates become eval gates.
+
+| Frontend practice                                      | Harness counterpart                                                                                 | Note                                             |
+| ------------------------------------------------------ | --------------------------------------------------------------------------------------------------- | ------------------------------------------------ |
+| `TestBed` provider overrides                           | Swap a live model for a recorded one, tools for fixtures                                            | 11.3                                             |
+| Snapshot tests                                         | **Context snapshot tests**: diff the constructed context for a reference task                       | Exact diffs suit context, which is deterministic |
+| Visual regression (perceptual diff, approved baseline) | **Semantic snapshot tests** for outputs: tolerance plus a reviewed baseline                         | Exact diffs are useless on probabilistic output  |
+| Record and replay                                      | Three modes, below                                                                                  | Fixes W6                                         |
+| Coverage panel                                         | **Context coverage**: replay with one fragment removed; fragments with no effect are dead           | Feeds tree-shaking and 9.7                       |
+| Mutation testing                                       | Delete a fragment, rule or harness component; if no eval notices, it is dead or the evals are blind | The ablation gate of 2.4                         |
+| Property-based tests                                   | **Metamorphic parser tests**: paraphrase invariance, round trip                                     | 7.3                                              |
+| Pseudo-localisation                                    | **Pseudo-model**: a deliberately degraded model in CI to expose hidden model-specific assumptions   |                                                  |
+| Consumer-driven contracts                              | Agents publish expectations of capabilities; providers verify before release                        | Catches silent tool changes                      |
+| Flaky-test quarantine                                  | Variance budgets; repeated runs with statistics                                                     |                                                  |
+| Dev-mode second change-detection pass                  | Run each proposal step twice in dev; divergent proposals flag an under-determined prompt            |                                                  |
+
+**Three replay modes.**
+
+1. **Projection replay.** Rebuild the IOM from events. Deterministic and always valid.
+2. **Invocation replay.** Re-run one recorded model call on a new model with identical inputs. Valid; this is the unit eval.
+3. **Trajectory replay.** Re-run an intent on a new model with recorded tool results. Valid only until the new model proposes a different command. The runtime detects divergence by comparing command hashes, then scores the prefix, switches to simulated capabilities, or re-executes capabilities declared safe.
+
+Durable-execution engines avoid the problem by demanding deterministic orchestration code. An agent step cannot meet that demand.
+
+### 9.10 Design systems, playgrounds and harnesses
+
+A design-system component has a stable API, variants, states, composition rules and an implementation hidden behind a contract. A capability has the same anatomy. An **intelligence design system** is a catalogue of agent archetypes (researcher, planner, builder, verifier), capability contracts, context and permission policies, verification rules, eval suites and observability conventions. Design tokens become policy tokens (8.3).
+
+Storybook's counterpart is a **capability and agent playground**: one capability in isolation, in each state, with controlled inputs. Angular's CDK component harnesses add a second idea: tests talk to a component through a stable harness instead of its DOM. A capability harness does that for tests and evals.
+
+### 9.11 Migrations
+
+_Maturity M1 · research potential medium to high._
+
+`ng update` runs migration schematics that rewrite application code across breaking changes. A model upgrade is a breaking change with no migration tooling. The counterpart: migrations shipped with a skill or model profile that rewrite prompts and configuration, followed by the eval suite and an automated pull request with the diff.
+
+### 9.12 Prerendering intents
+
+_Maturity M1 · research potential medium._
+
+Static site generation renders pages at build time because their content does not depend on the request. Some intents are the same: "onboard a new team member" has a plan that hardly varies. Such intent types are prerendered: parsed, cascaded and planned at build time, shipped as a template that run time only parameterises. Chapter 13 extends this to server rendering.
 
 ---
 
-## 6. Orchestration: Lifecycle, Scheduling, Capability Resolution, Routing
+# Part V: Run Time
 
-### 6.1 Agent lifecycle as a statechart
+## 10. Context and Memory
 
-An agent is a state machine. The generic lifecycle, with recovery:
+### 10.1 Context is a view
 
-```text
-idle → planning → executing → collecting evidence → verifying ─┬─ pass → complete
-                                      ↑                         │
-                                      └── retry / escalate ◄── fail → recover
+Model context must never be canonical state. It is derived: canonical state → context policy → selectors → model context that is reproducible, inspectable and task-specific. An Angular `computed()` derives from signals only what a consumer needs, memoised and recomputed on change. Context selectors do the same.
+
+```ts
+interface ContextProvider {
+  id: string;
+  supports(query: ContextQuery): boolean;
+  resolve(query: ContextQuery): Promise<ContextFragment>; // fragment carries origin and chunk class
+}
+interface ContextEngine {
+  build(intent: Intent, agent: Agent, plan: ContextPlan): Promise<ContextSnapshot>;
+}
 ```
 
-The choice of statecharts over an unstructured reducer is deliberate: hierarchical and parallel states, guarded transitions, entry/exit actions and explicit error states are all needed, and all are available in XState-style libraries. Agents can be created, suspended, resumed, escalated, replaced and destroyed, like browser workers and processes.
+Typical providers: user, project, repository, Git, filesystem, browser, events, semantic memory, knowledge graph, documents, calendar.
 
-The resulting division of labour:
+### 10.2 Memory topology
+
+_Maturity M2–M3 · research potential medium._
+
+Browsers do not persist everything in one store. The runtime adopts the same discipline.
+
+| Tier (runtime)                              | Browser analogue       | Semantics                                                                     |
+| ------------------------------------------- | ---------------------- | ----------------------------------------------------------------------------- |
+| Working context                             | In-memory              | Current computation only; rebuilt per task                                    |
+| Session / working memory                    | `sessionStorage`       | Lives with the intent session; dies with it                                   |
+| Lightweight preferences                     | `localStorage`         | Small, synchronous, persistent; no transactions                               |
+| Structured project and agent state          | IndexedDB              | Transactional, indexed, versioned with upgrade handlers                       |
+| Reconstructible context, results, artifacts | Cache API / HTTP cache | Keyed by request, here by snapshot hash; disposable                           |
+| Identity, session, auth metadata            | Cookies                | Scoped and sensitive; attached by the runtime, unreadable by the model (12.7) |
+| Task and navigation history                 | History                | Temporal, navigable                                                           |
+| Background runtime state                    | Service-worker state   | Survives the view                                                             |
+| Semantic memory, durable knowledge          | (no analogue)          | Curated, retrievable                                                          |
+| **Event store**                             | **(no analogue)**      | **Immutable, append-only, source of truth**                                   |
+
+The event store is not a cache. A plausible layout: `runtime-storage/{session,local,indexed,cache,memory,knowledge,events}/`.
+
+Four platform behaviours carry over.
+
+- **Quota and eviction.** Best-effort storage is evicted under pressure; persistence is requested explicitly. Each tier declares whether it is evictable.
+- **Versioning.** Structured stores migrate through upgrade handlers (7.6).
+- **Partitioning.** Third-party storage is keyed by the top-level site. Skill memory is keyed by intent (12.9).
+- **Erasure.** An append-only log of full context snapshots is an audit asset and a data-protection liability. Payloads live in a content-addressed store, encrypted with a key per data subject or intent; the log holds hashes. Deleting the key erases the content and keeps the hash chain intact. Derived memories and embeddings are purged by following the provenance graph.
+
+### 10.3 Caching and staleness
+
+HTTP caching and _stale-while-revalidate_ map onto epistemic state closely. A provider can serve evidence as stale while a verification worker refreshes it, and the IOM marks it `stale` or `contradicted` on return. Angular's service-worker configuration names the two strategies every provider must choose between: `freshness` (source first, cache on timeout) for volatile knowledge and `performance` (cache first, bounded age) for stable knowledge.
+
+### 10.4 Cache-stable layout at run time
+
+_Maturity M2 · research potential medium._
+
+1. **The prefix is frozen for the life of an intent** unless a stable chunk changes, which is a visible, costly event.
+2. **Register early, activate late.** Tool definitions sit near the front of the prompt, so adding or removing one mid-intent invalidates everything after it; practitioners advise masking tools instead of removing them [Manus]. A skill's definitions are _registered_ at intent start. Whether a tool may be _used_ in the current state is decided by the lifecycle statechart and enforced by the validator.
+3. **Selectors rewrite the tail.** Compaction creates a new epoch with a new stable prefix, at a chosen moment.
+4. **Measure it.** _Context layout shift_ is the share of the prefix that changed between consecutive invocations (14.3).
+
+### 10.5 The first-step path
+
+_Maturity M1–M2 · research potential medium to high._
+
+The web's critical rendering path has a run-time half.
+
+| Web technique                                    | Runtime counterpart                                                                                               |
+| ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------- |
+| `preconnect`, `preload`                          | Warm the model's prefix cache, open tool sessions, authenticate before the first step                             |
+| Early Hints                                      | Start likely providers while the utterance is still being parsed                                                  |
+| `fetchpriority`                                  | Priority hints on fragments and capability calls                                                                  |
+| Speculation Rules (prerender likely navigations) | **Speculative pre-execution** of likely next steps, restricted to safe, read-only capabilities and to forks (7.7) |
+| `font-display: swap`                             | Show a fast local answer marked _unverified_, swap in the verified one                                            |
+| Skeleton screens                                 | Render the partial IOM while providers resolve                                                                    |
+
+Speculation is legitimate only because the browser distinguishes safe requests from unsafe ones. The runtime needs the same declaration on every capability, and MCP's tool annotations provide a starting vocabulary [MCP].
+
+### 10.6 Virtualisation and multi-resolution fragments
+
+A virtual-scroll viewport renders only the rows in view and keeps the scroll height honest. Long histories and large files get the same treatment: placeholders with size estimates and handles. Responsive images offer one resource at several resolutions and let the browser choose; a fragment likewise comes as `full`, `summary` or `handle`, and the engine picks by budget. That treats the context window as a viewport, an idea Priompt stated in 2023 [Priompt].
+
+---
+
+## 11. Orchestration
+
+### 11.1 Agent lifecycle as a statechart
+
+_Maturity M3 · research potential low to medium · fixes W8._
+
+An agent is a state machine. We use statecharts rather than a reducer because hierarchical and parallel states, guards, entry and exit actions and explicit error states are all needed, and all are in XState.
+
+Version 1.0's chart prescribed a thinking procedure: planning, executing, collecting evidence, verifying. That belongs to the cognitive plane. The control-plane chart describes only what the runtime must know.
+
+```mermaid
+stateDiagram-v2
+  [*] --> Idle
+  Idle --> Assigned: AgentAssigned
+  Assigned --> Running: capabilities resolved
+  Running --> AwaitingApproval: high-risk command
+  AwaitingApproval --> Running: activation granted
+  AwaitingApproval --> Suspended: denied or timed out
+  Running --> Suspended: preempted or frozen
+  Suspended --> Running: resumed
+  Running --> Verifying: artifact produced
+  Verifying --> Done: acceptance criteria pass
+  Verifying --> Recovering: criteria fail
+  Recovering --> Running: retry or escalate
+  Recovering --> Failed: budget exhausted
+  Running --> Failed: unrecoverable error
+  Done --> [*]
+  Failed --> [*]
+```
+
+Inside `Running`, a shadow agent may plan, act and reflect in any order. A team that wants the old procedure can ship it as a nested chart in the cognitive plane, with eval evidence.
 
 ```text
-state machine / orchestrator → decides what the agent is doing
-model router                 → decides which compute resource to use
-model                        → performs probabilistic computation
+state machine -> decides what the agent may do now
+model router  -> decides which compute resource to use
+model         -> performs probabilistic computation
 ```
 
 The model is never the scheduler.
 
-### 6.2 Scheduler and resource policy
+### 11.2 Scheduler and resource policy
 
-The scheduler is the runtime's event loop and resource manager. It reacts to events, determines runnable work (respecting dependencies in the IOM graph), allocates workers and models, enforces budgets, manages concurrency, handles retries and escalation, schedules verification and terminates completed workers. Resources under management include CPU, GPU, model capacity, network, tool concurrency, context budget, token budget, cost budget, latency budget, permissions and worker count. Tasks carry a policy:
+The scheduler is the runtime's event loop and resource manager and the reconciler of 7.4. It reacts to events, determines runnable work from the IOM graph, allocates workers and models, enforces budgets, manages concurrency, handles retries and escalation, schedules verification and terminates completed workers. Managed resources: CPU, GPU, model capacity, network, tool concurrency, context, token, cost and latency budgets, permissions, worker count.
 
 ```ts
 interface ResourcePolicy {
@@ -634,423 +1401,510 @@ interface ResourcePolicy {
   maxCost?: number;
   maxTokens?: number;
   maxParallelWorkers?: number;
-  privacy: "local_only" | "trusted_cloud" | "any";
-  verification: "none" | "optional" | "required";
+  privacy: 'local_only' | 'trusted_cloud' | 'any';
+  verification: 'none' | 'optional' | 'required';
+  priority: 'user-blocking' | 'user-visible' | 'background';
 }
 ```
 
-Unlike a browser event loop, which is mechanical, this scheduler must sometimes *reason* about allocation. That reasoning is itself a candidate for a small decision model (Section 6.4), but the decision is always executed deterministically by the scheduler.
+In practice these values are computed constraints (Chapter 8). The priority classes are those of the Prioritized Task Scheduling API. Its two companions matter as much: long steps must **yield** so pending user input is noticed, and every task carries an **abort signal**. Idle time is for consolidation and re-verifying stale evidence.
 
-### 6.3 Capability resolution as hierarchical dependency injection
+Unlike a browser event loop, this scheduler must sometimes _reason_ about allocation. That reasoning goes to decision models (11.5) held to the discipline of a worklet: no capabilities, a hard time budget, a pure function of inputs.
 
-The design principle "agents request capabilities, not implementations" is dependency injection. Frontend engineers know DI primarily through Angular, and Angular's injector model is unusually complete, which makes it a useful reference. We walk through its constructs and map each.
+### 11.3 Capability resolution as hierarchical dependency injection
 
-**Angular's DI, reduced to its parts.** Injectors form a tree: platform injector → root injector (`providedIn: 'root'`) → injectors created for lazily loaded routes or modules → element injectors declared on components and directives. A dependency is resolved by walking up from the requesting node; the nearest provider wins. Providers come in several shapes: `useClass` (instantiate), `useValue` (constant), `useFactory` with `deps` (compute at injection time), `useExisting` (alias one token to another). Non-class dependencies are addressed through `InjectionToken`s. `multi: true` collects every registered provider for a token into an array, which is how HTTP interceptor chains are assembled. Resolution modifiers (`@Optional()`, `@Self()`, `@SkipSelf()`, `@Host()`) control whether absence is an error and which part of the tree may answer. Lifecycle hooks (`ngOnInit`, `ngOnDestroy`) are called by the framework, not by the component. `TestBed` swaps providers for tests.
+_Maturity M2 · research potential medium._
 
-**The mapping.**
+"Agents request capabilities, not implementations" is dependency injection, and Angular's injector model is unusually complete.
 
-```text
-Angular injector tree                    Intent runtime scope tree
-──────────────────────────────           ─────────────────────────────────────────
-platform injector                        runtime     (model pool, registries, host)
-  └─ root injector                         └─ profile   (identity, privacy policy, memory)
-       └─ lazy module injector                  └─ session   (intent, grants, working memory)
-            └─ component injector                    └─ agent     (role, context policy, candidates)
-                 └─ child component                       └─ task      (overrides, budgets)
+**Angular's DI, reduced to its parts.** Injectors form a tree: platform → root → environment injectors for lazily loaded routes → element injectors on components and directives. A dependency resolves by walking up from the requester; the nearest provider wins. Providers come as `useClass`, `useValue`, `useFactory` with `deps`, and `useExisting`. Non-class dependencies use `InjectionToken`s. `multi: true` collects every provider for a token into an array, which is how interceptor chains are assembled. Resolution modifiers (`optional`, `self`, `skipSelf`, `host`) control absence and which part of the tree may answer. Lifecycle hooks are called by the framework. `TestBed` swaps providers for tests.
+
+```mermaid
+flowchart TD
+  subgraph NG["Angular injector tree"]
+    p1["platform injector"] --> p2["root injector"] --> p3["route / environment injector"] --> p4["component injector"] --> p5["child component"]
+  end
+  subgraph IR["Intent runtime scope tree"]
+    s1["runtime<br/>model pool, registries, host"] --> s2["profile<br/>identity, privacy policy, memory"] --> s3["session<br/>intent, grants, working memory"] --> s4["agent<br/>role, context policy, candidates"] --> s5["task<br/>overrides, budgets"]
+  end
 ```
 
-| Angular DI | Capability resolution |
-|---|---|
-| `InjectionToken<T>` | Capability identifier (`filesystem.read`, `model.coding`); abstract, never a concrete class |
-| Constructor parameters | Agent's declared `CapabilityRequirement[]`; the runtime supplies, the agent never constructs |
-| `useClass` | Bind a capability to a local implementation (sandbox executor) |
-| `useValue` | Bind to a fixed resource (a pinned model for reproducible evals) |
-| `useFactory` + `deps` | **The model router is a factory provider**: `provide: CODING_MODEL, useFactory: (router, policy) => router.select(req, policy)` |
-| `useExisting` | Alias `browser.search` to `web.search`; capability indirection |
-| `multi: true` | Aggregate many context providers under one token; aggregate policy interceptors into a chain |
-| Interceptor chain | Command middleware: authorisation → redaction → budget check → logging, in order |
-| `@Optional()` | Optional capability; degrade gracefully if no implementation is installed |
-| `@Self()` / `@SkipSelf()` | "Use only session-scoped memory" vs "skip to profile memory" |
-| Lazy module with own injector | Skill loaded on demand with its own scoped providers |
-| `providedIn: 'root'` tree-shaking | Only capabilities actually requested are bundled into an agent package (Chapter 8) |
-| Lifecycle hooks | Agent lifecycle callbacks invoked by the scheduler, not by the agent |
-| `TestBed.overrideProvider` | Eval harness: swap live model for a recorded one, swap tools for event-store replays |
-
-A sketch in Angular-flavoured pseudo-code:
+| Angular DI                       | Capability resolution                                                             |
+| -------------------------------- | --------------------------------------------------------------------------------- |
+| `InjectionToken<T>`              | Capability identifier (`filesystem.read`, `model.coding`); never a concrete class |
+| Constructor / `inject()`         | The agent's declared `CapabilityRequirement[]`; the runtime supplies              |
+| `useClass`                       | Bind a capability to a local implementation (sandbox executor)                    |
+| `useValue`                       | Bind to a fixed resource (a pinned model for reproducible evals)                  |
+| `useFactory` + `deps`            | **The model router is a factory provider**                                        |
+| `useExisting`                    | Alias `browser.search` to `web.search`                                            |
+| `multi: true`                    | Aggregate context providers; aggregate policy interceptors                        |
+| Interceptor chain                | Command middleware: authorisation → redaction → budget → audit                    |
+| `optional`                       | Optional capability; degrade gracefully                                           |
+| `self` / `skipSelf`              | "Session memory only" versus "skip to profile memory"                             |
+| `viewProviders`                  | Providers visible to an agent's own internals but not to content slotted into it  |
+| Lazy route with its own injector | Skill loaded on demand with scoped providers                                      |
+| Tree-shakable providers          | Only requested capabilities are bundled                                           |
+| Lifecycle hooks                  | Lifecycle callbacks invoked by the scheduler                                      |
+| `TestBed.overrideProvider`       | Eval harness: recorded model, fixture tools                                       |
+| Import maps with `scopes`        | The platform's own declarative, scoped resolution table                           |
 
 ```ts
-export const CODING_MODEL      = new InjectionToken<Model>("capability:model.coding");
-export const CONTEXT_PROVIDERS = new InjectionToken<ContextProvider[]>("context.providers");
-export const COMMAND_PIPELINE  = new InjectionToken<CommandInterceptor[]>("command.pipeline");
+export const CODING_MODEL = new InjectionToken<Model>('capability:model.coding');
+export const CONTEXT_PROVIDERS = new InjectionToken<ContextProvider[]>('context.providers');
+export const COMMAND_PIPELINE = new InjectionToken<CommandInterceptor[]>('command.pipeline');
 
 providers: [
-  { provide: CODING_MODEL, useFactory: (r: ModelRouter, p: ResourcePolicy) =>
-      r.select({ capability: "coding", minContext: 32000 }, p), deps: [ModelRouter, ResourcePolicy] },
+  {
+    provide: CODING_MODEL,
+    useFactory: (r: ModelRouter, p: ResourcePolicy) =>
+      r.select({ capability: 'coding', minContext: 32000 }, p),
+    deps: [ModelRouter, ResourcePolicy],
+  },
   { provide: CONTEXT_PROVIDERS, useClass: RepositoryContextProvider, multi: true },
-  { provide: CONTEXT_PROVIDERS, useClass: GitContextProvider,        multi: true },
-  { provide: COMMAND_PIPELINE,  useClass: AuthorizationInterceptor,  multi: true },
-  { provide: COMMAND_PIPELINE,  useClass: BudgetInterceptor,         multi: true },
-  { provide: COMMAND_PIPELINE,  useClass: AuditInterceptor,          multi: true },
-]
+  { provide: CONTEXT_PROVIDERS, useClass: GitContextProvider, multi: true },
+  { provide: COMMAND_PIPELINE, useClass: AuthorizationInterceptor, multi: true },
+  { provide: COMMAND_PIPELINE, useClass: BudgetInterceptor, multi: true },
+  { provide: COMMAND_PIPELINE, useClass: AuditInterceptor, multi: true },
+];
 ```
 
-**Where DI must be tightened.** In Angular a child injector may override a parent's provider arbitrarily. In an intelligence runtime, overrides along the scope tree must be *attenuating*: a session may narrow the profile's permissions, never widen them; a task may restrict the model candidate set, never add a cloud model to a `local_only` session. This is capability-based security grafted onto DI, and it is a point where the analogy must be deliberately broken.
+**Where DI must be tightened.** In Angular a child injector may override a parent's provider arbitrarily. Here overrides must be _attenuating_: a session may narrow the profile's permissions, never widen them; a task may restrict the model candidate set, never add a cloud model to a `local_only` session. This is capability-based security grafted onto DI.
 
-**Negotiation on top of resolution.** Resolution answers "which implementation satisfies this token?" Negotiation adds "which of several satisfying implementations is best under this policy?", scoring candidates on reasoning quality, coding, vision, tool use, context length, latency, cost and locality. DI gives the structure; the scoring function is the new part.
+**Negotiation on top of resolution.** Resolution answers "which implementation satisfies this token?" Negotiation adds "which is best under this policy?", scoring candidates on quality, coding, vision, tool use, context length, latency, cost and locality.
 
 ```ts
 interface CapabilityRequirement {
   capability: string;
   constraints?: Record<string, unknown>;
-  preferredLocality?: "local" | "cloud" | "any";
+  preferredLocality?: 'local' | 'cloud' | 'any';
   maxLatencyMs?: number;
   maxCost?: number;
 }
 ```
 
-### 6.4 Model routing, progressive escalation, decision models
+### 11.4 Routing and execution modes
 
-The model router is a subsystem subordinate to the scheduler, never the runtime itself. External routing services can be one backend among several, not the architecture. The router scores candidates against task requirements, capability profile, latency and cost budgets, privacy policy, context size, availability and quality requirements:
+A route configuration declares _guards_, _resolvers_ and _lazy loading_. Task routing has the same hooks, expressed declaratively: policy guards (does this task need approval before any worker starts?), context resolvers (construct this context before the agent activates) and lazy skill activation.
 
-```text
-trivial task              → small local model
-coding                    → coding specialist
-complex reasoning         → large local or cloud model
-critical verification     → high-quality independent verifier
-privacy = local_only      → local candidate set only
-```
+Angular's route-level render modes add a fourth: each route declares `Prerender`, `Server` or `Client`. A subgoal type declares its **execution mode**: `Prerendered` (9.12), `Cloud` or `Local` (13.1), guarded by the privacy constraint.
 
-**Progressive enhancement becomes progressive compute escalation.** A web page is built to work with minimal capability and improve as more is available. The runtime inverts the budget: start with the cheapest sufficient resource and escalate only on insufficiency.
+### 11.5 Model routing, progressive escalation, decision models
+
+_Maturity M3 · research potential medium._
+
+The model router is subordinate to the scheduler. External routing services are one backend among several.
 
 ```text
-intent → small local model → sufficient? → done
-                 ↓ no
-         larger local model → sufficient? → done
-                 ↓ no
-         cloud / frontier   → sufficient? → done
-                 ↓ no
-         human review
+trivial task          -> small local model
+coding                -> coding specialist
+complex reasoning     -> large local or cloud model
+critical verification -> high-quality independent verifier
+privacy = local_only  -> local candidate set only
 ```
 
-This yields graceful degradation (the system still works offline, with lower quality) and privacy by default (data leaves the device only when escalation requires it).
+**Progressive enhancement becomes progressive compute escalation.** Start with the cheapest sufficient resource and escalate on insufficiency. This yields graceful degradation and privacy by default. Version 1.0 left "sufficient?" undefined. A weak model is the worst judge of its own sufficiency, so the acceptance criteria and a verifier answer the question.
 
-**Decision models.** Many scheduler decisions are small classification problems: is this task simple enough for a small model, should I retry, should I escalate, do I need another worker, is verification necessary. A low-cost decision-oriented model is a plausible fit for these. The source discussion named a candidate; its suitability is unverified and the architecture does not depend on any particular model.
-
-### 6.5 Verification as a first-class capability
-
-Generation and verification are separated by construction:
-
-```text
-builder agent → artifact → verifier agent → evidence → decision
+```mermaid
+flowchart TD
+  T["Task + acceptance criteria"] --> S["Small local model"]
+  S --> J1{"Criteria pass?<br/>(judged by verifier, not by the model)"}
+  J1 -->|yes| D["Done"]
+  J1 -->|no| LG["Larger local model"]
+  LG --> J2{"Criteria pass?"}
+  J2 -->|yes| D
+  J2 -->|no| PG{"Privacy constraint<br/>allows cloud?"}
+  PG -->|yes| F["Cloud / frontier model"]
+  PG -->|no| H["Human review"]
+  F --> J3{"Criteria pass?"}
+  J3 -->|yes| D
+  J3 -->|no| H
 ```
 
-Verification may be tests, static analysis, an independent model, browser execution, source comparison, schema validation, policy checks or human approval. The architectural effect is that the system no longer assumes the model that produced an answer should be trusted to validate it. Verification results are evidence in the IOM and feed epistemic state.
+Failed cheap attempts cost time, so the router may hedge: start two tiers in parallel and cancel the loser through its abort signal.
+
+**Decision models.** Many scheduler decisions are small classification problems: is this task simple, should I retry, should I escalate. A low-cost decision model is a plausible fit, under the worklet discipline. The source discussion named a candidate; its suitability is unverified.
+
+### 11.6 Verification as a first-class capability
+
+_Maturity M2 · research potential high._
+
+Generation and verification are separated: builder → artifact → verifier → evidence → decision. Verification may be tests, static analysis, an independent model, browser execution, source comparison, schema validation, policy checks or human approval.
+
+Separation is not independence. A verifier of the same model family reading the same context makes correlated errors. The runtime therefore records an **independence** field, and constraints can demand a minimum: the verifier must differ from the builder in at least one of method (tests beat models), model family or context. Where no independent check exists the result is `inferred`, not `verified`.
+
+### 11.7 Reactivity and change detection
+
+Angular's journey from zone-based change detection to signals is the harness story in miniature. Zone.js patched every asynchronous API and re-checked everything after anything happened. Many harnesses re-read everything after every tool call.
+
+| Angular                            | Runtime                                                                         |
+| ---------------------------------- | ------------------------------------------------------------------------------- |
+| `signal` / `computed`              | IOM slices and derived context; decisions over evidence (7.8)                   |
+| `effect`                           | Agent subscriptions: a verifier wakes on `ArtifactCreated` for its subgoal only |
+| Glitch-free propagation            | Consistent snapshot per tick (7.7)                                              |
+| `OnPush`                           | Agents are inspected only when their inputs change or they signal               |
+| Dev-mode second check              | Double invocation of proposal steps in dev (9.9)                                |
+| Render phases for reads and writes | Batched IOM operations (7.9)                                                    |
+
+### 11.8 Failure containment and placeholders
+
+A failed worker is contained to its subgoal: the IOM records `AgentFailed` and `SubgoalBlocked`, and the scheduler decides on retry, escalation or fallback without the intent collapsing. Angular's deferrable views give the vocabulary: a `@defer` block has a `@placeholder`, a `@loading` state and an `@error` state. A subgoal has the same three declared states. A slot's fallback content is the default that shows when no agent fills the slot. Failures are classified in the manner of HTTP status classes: the plan is wrong, the infrastructure is transient, the version is stale, the budget is exhausted. Retry policy follows the class.
+
+### 11.9 Updating under live intents
+
+_Maturity M1 · research potential medium to high._
+
+What happens to a running intent when a skill, prompt or model changes? Most harnesses answer by accident. The service worker answers by design.
+
+```mermaid
+stateDiagram-v2
+  [*] --> Installing: new version resolved
+  Installing --> Waiting: checks and evals pass
+  Installing --> Redundant: checks fail
+  Waiting --> Active: no live intent on old version
+  Waiting --> Active: skipWaiting (audited)
+  Active --> Redundant: superseded
+```
+
+Running intents finish on the versions their lockfile snapshot names. New intents get the new version. Forcing activation is an explicit, recorded act. State-preserving swaps during development follow the hot-module-replacement rule: if a capability's contract is unchanged, keep the agent's state; if it changed, reset and replay.
+
+### 11.10 Suspend and resume
+
+_Maturity M2 · research potential medium._
+
+Tabs under pressure follow the Page Lifecycle: active, hidden, frozen, discarded. A frozen intent makes no model calls. A discarded intent keeps only its event log. An intent with side effects in flight cannot be frozen, as a page with open connections is ineligible for the back/forward cache. Abandoning an intent with uncommitted side effects asks first.
+
+Resuming is hydration from the event store. Version 1.0 stopped there, which means replaying everything. Angular's incremental hydration is the better model: state arrives serialised, and a part is hydrated only when a trigger fires. For an intent: load the latest snapshot, wake only the agent whose event arrives, leave completed subgoals as inert content. Two details transfer. **Event replay:** user input that arrives before the runtime is ready is captured and replayed. **Mismatch detection:** if the projection rebuilt from events disagrees with the stored snapshot, that is an error to surface.
 
 ---
 
-## 7. The Browser as Reference Architecture
+## 12. Security: Origins, Not Just Permissions
 
-### 7.1 Why the analogy is structural
+_Fixes W4._
 
-A browser is a mature general-purpose runtime that already coordinates heterogeneous computation, persistent and ephemeral state, networking, caching, background execution, security and permissions, extensions, resource management, user interaction, process isolation, storage, lifecycle and debugging. Every one of these is a requirement of an intelligence runtime. The analogy is therefore not rhetorical; it is a list of solved problems to reuse.
+### 12.1 Capability security
 
-### 7.2 Primitive mapping and differences
-
-| Browser primitive | Intelligence runtime |
-|---|---|
-| Browser | Intelligence runtime |
-| Tab | Intent workspace / session |
-| Page | Session view |
-| DOM | IOM |
-| JavaScript | Agent and model computation |
-| V8 | LLM / inference engine |
-| Web APIs | Capability APIs |
-| Web Worker | Agent worker (direct parallel computation) |
-| Service Worker | Background, event-driven agent independent of the current view |
-| Event loop | Intelligence scheduler |
-| Storage tiers | Memory topology (Section 5.3) |
-| Browser history | Event and decision history |
-| Extensions | Skills and plugins |
-| Permissions | Capability security |
-| Processes (browser, renderer, GPU, utility, network) | Orchestrator, agent workers, model workers, verification workers, tool workers |
-| GPU process | Specialised inference compute |
-| Profile | Personal intelligence environment |
-| DevTools | Intelligence DevTools |
-| URL | Resource identifier |
-| (none) | Intent: desired-outcome identifier |
-
-Where the two differ:
-
-| Browser | Intelligence runtime |
-|---|---|
-| Mostly deterministic | Probabilistic |
-| Page is the primary unit | Intent is the primary unit |
-| URL identifies a resource | Intent identifies an outcome |
-| HTTP is the core interface | Capability negotiation may be the core interface |
-| State is comparatively objective | Knowledge carries uncertainty and provenance |
-| History is navigation | History includes decisions, evidence, actions, outcomes |
-| JavaScript executes code | Models perform inference |
-| Scheduler is mechanical | Scheduler must sometimes reason about allocation |
-
-### 7.3 The LLM is V8, not the browser
-
-V8 is powerful because it exists inside a much larger runtime that supplies it with a DOM to act on, APIs to call, storage to persist into, a security model to live under and tools to debug it. Remove the browser and V8 is a fast interpreter with nothing to do. The LLM is in the same position. Its usefulness is bounded by the harness around it, which is why investment in the harness is not a detour from AI progress but a component of it.
-
-### 7.4 Process architecture and workers
-
-The browser runs many semi-independent activities safely in one environment through process separation and message passing. The runtime mirrors this: orchestrator, agent workers, retrieval workers, model workers, verification workers, tool workers, connected by an event bus rather than ad-hoc IPC. Two worker types carry over with precision. A Web Worker is direct parallel computation bound to a page: an agent worker spawned for a subgoal. A Service Worker is a background, event-driven runtime that outlives any page: a monitoring agent that reacts to events when no session is open.
-
-The event-driven shape:
+Capabilities are explicitly declared, granted by policy, scoped, revocable, auditable, risk-tiered and intent-aware:
 
 ```text
-main agent → commands → scheduler → {research, coding, retrieval, verification} workers
-          → events → event store → projection → new context → decision → …
+filesystem.read      -> automatic
+filesystem.write     -> scoped
+network.search       -> automatic
+email.send           -> approval
+purchase.execute     -> approval
+financial.transfer   -> strong approval
+credential access    -> isolated / restricted
 ```
 
-This is the alternative to the undesirable "one giant autonomous loop": explicit state transitions, isolated workers, durable events.
+The deterministic boundary makes enforcement possible. It is necessary and not sufficient: a model steered by injected text proposes commands that are valid, authorised and within budget, and that serve the attacker. Permissions govern what an agent may do. They say nothing about whose words it is acting on.
 
-### 7.5 Tabs as intents, profiles as environments
+### 12.2 The origin model
 
-A tab provides user-visible separation, a resource lifecycle, a context boundary, interruptibility, concurrency and a mental model users already have. Mapping tab to intent, rather than tab to agent, preserves all of these: "Launch Product", "Plan Vacation" and "Debug Production Issue" are three tabs, each hosting its own agent graph, working memory, artifacts and event stream, all sharing one profile with identity, persistent memory, installed skills, permissions and model pool.
+_Maturity M1 · research potential high._
 
-### 7.6 Security: permissions become capability security
+The browser's security rests on the origin. Agentic browsers have been shown to let a successful prompt injection carry data across origins and to mingle origins in memory [UW-SOP], and a benchmark with an enforcement mechanism exists [SOPGuard].
 
-Browser permissions are the right starting point and insufficient on their own. Capabilities must be explicitly declared, granted by policy, scoped, revocable and auditable, and additionally risk-tiered and intent-aware:
+Every fragment, value and artifact carries an `Origin`. Origins fall into two channels.
 
-```text
-filesystem.read      → automatic
-filesystem.write     → scoped
-network.search       → automatic
-email.send           → approval
-purchase.execute     → approval
-financial.transfer   → strong approval
-credential access    → isolated / restricted
+```mermaid
+flowchart LR
+  U["user origin"] --> I["instruction channel"]
+  PF["profile origin"] --> I
+  W["web / tool origins"] --> DCH["data channel<br/>(tainted)"]
+  I --> M["Model step"]
+  DCH --> M
+  M -->|"proposed command + provenance"| G{"Sink guard"}
+  G -->|"arguments from trusted origins"| OK["Execute"]
+  G -->|"tainted arguments to a sensitive sink"| AP["Declassify:<br/>user activation"]
+  AP --> OK
 ```
 
-Each capability declares identity, inputs, outputs, permissions, side effects, risk level, approval requirements and audit events. The deterministic boundary of Section 2.3 is what makes enforcement possible: the model cannot bypass a check it never had the authority to perform.
+A model does not reliably respect a channel boundary drawn in its prompt. So the boundary is enforced after the model, on what it proposes.
 
-### 7.7 The semantic capability layer and the capability-oriented web
+### 12.3 CORS for context
 
-Agents should not operate the DOM when a higher-level semantic capability can be exposed. `SearchWeb`, `ReadPage`, `FollowLink`, `FillForm`, `SubmitForm`, `DownloadArtifact`, `Authenticate`, `Purchase`, `Schedule`, `ExtractData` are the right granularity; click-and-type on DOM nodes is a fallback for legacy sites. The pattern is the one browsers already follow when higher-level Web APIs abstract lower-level platform mechanics.
+_Maturity M1 · research potential high._
 
-This generalises into a view of the web's evolution. Web 1 addressed documents; Web 2 addressed applications; an AI-native web addresses capabilities. The historical flow user → URL → application → UI → action becomes user → intent → capability discovery → runtime orchestration → tools, services, models, data → outcome. The browser abstracted away the operating system and the network needed to reach applications. An AI browser abstracts away the applications themselves. UI does not disappear; it becomes a situational output modality, while intent becomes the primary computational input. Existing websites function as legacy application interfaces driven through automation. AI-native services expose structured capabilities directly:
+CORS lets the _resource owner_ declare who may read a response; the browser enforces it and the page's script has no say. The counterpart, **cross-origin context sharing**, lets the source of data declare which intents and destinations may consume it. The runtime enforces it and the model has no say.
 
-```text
-Capability: SearchFlights
-Inputs:      origin · destination · date · passengers
-Constraints: max_price · preferred_airlines
-Permissions: user_approval_required
-Outputs:     flight_options
-Evidence:    source · timestamp
+| CORS                               | Context counterpart                                                                                           |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `Access-Control-Allow-Origin`      | Which intent classes may read this data into context                                                          |
+| Simple versus preflighted requests | Safe, read-only capabilities versus side-effecting ones                                                       |
+| Preflight                          | A dry run: the runtime asks the target what the call would do and whether agent-originated calls are accepted |
+| `Access-Control-Allow-Credentials` | Whether the user's ambient credentials may accompany the call                                                 |
+| `Access-Control-Max-Age`           | How long a preflight answer may be cached                                                                     |
+| Opaque responses                   | Data that may be carried but not read (12.6)                                                                  |
+
+```mermaid
+sequenceDiagram
+  participant A as Agent
+  participant R as Runtime
+  participant S as Remote capability
+  A->>R: propose bookFlight(args)
+  R->>S: preflight (origin, intent class, activation, delegation)
+  S-->>R: allowed origins, side effects, max-age
+  R->>R: check cascade, taint, activation
+  R->>S: execute with attached credentials
+  S-->>R: result + evidence
+  R-->>A: result tagged with origin
 ```
 
-Human interface and machine capability interface coexist. URLs do not vanish; they become one resource-addressing mechanism inside an intent-oriented runtime.
+WebMCP's origin-gated tool exposure is a first step in this direction [WebMCP].
 
-### 7.8 What is reused and what must be invented
+### 12.4 CSP for intents
 
-| Reused from the browser | Invented for intelligence |
-|---|---|
-| Processes, workers, IPC | IOM and intent events |
-| Networking, storage, caching | Context engine |
-| Permissions, sandboxing | Model router |
-| Extensions, tabs, profiles | Epistemic state |
-| DevTools | Verification and provenance |
-| | Capability negotiation |
-| | Agent lifecycle and intent scheduler |
+_Maturity M1 · research potential medium to high._
 
-Hence: AI browser = browser runtime + intelligence runtime, not browser + chatbot.
+A Content Security Policy is a declared allow-list the browser enforces. An intent gets one, compiled from its constraints: which origins may contribute _instructions_, which destinations data may flow to (the egress allow-list, the counterpart of `connect-src`), which skills may load. A new policy runs in **report-only** mode first: violations are recorded as `PolicyViolationReported` without blocking.
+
+### 12.5 Trusted Types for sinks
+
+_Maturity M1 · research potential high._
+
+Trusted Types end DOM injection by a simple rule: dangerous sinks refuse plain strings and accept only values produced by a named policy. Agent harnesses have their own sinks: a recipient address, a URL to fetch, a shell command, a payment amount, a file path. The rule transfers.
+
+> A sensitive sink accepts only a value whose provenance traces to a trusted origin, or which passed a declared sanitiser policy. It never accepts a raw model-generated string derived from tainted context.
+
+The provenance graph of 7.8 already holds the needed information. CaMeL enforces a similar property by tracking capabilities on values in a custom interpreter [CaMeL]; Trusted Types give the same idea a form frontend engineers already use.
+
+### 12.6 Tainted context and opaque handles
+
+_Maturity M1–M2 · research potential high._
+
+Draw a cross-origin image on a canvas without permission and the canvas is tainted: you can show it and cannot read the pixels back. The same holds for model steps. A step that has read untrusted content is tainted with that origin, and so is everything it produces. Tainted output may be displayed and stored; it may not drive a sensitive sink without declassification.
+
+Where possible the untrusted content never enters the privileged step. The agent passes a **handle**, as an opaque response is cached without being read. This is the dual-LLM pattern in platform vocabulary.
+
+One caveat comes from React's experimental taint API: it protects the marked object, not values derived from it [Taint]. A summary of a confidential document is still confidential. Taint must therefore propagate through every processor.
+
+### 12.7 Credentials
+
+_Maturity M2–M3 · research potential low to medium._
+
+An `HttpOnly` cookie is attached by the browser and unreadable by script. Credentials are attached by the runtime at the capability boundary and never appear in model context. `SameSite` is the second half: a credential is attached only when the command's causal chain starts in the same intent. Prompt injection in an agentic browser is cross-site request forgery with a more capable deputy.
+
+### 12.8 User activation
+
+_Maturity M0–M1 · research potential high._
+
+Browsers do not ask permission before a popup opens. They require that the call descends from a recent, real user gesture; the activation expires and some APIs consume it [UserAct]. This is why popup blockers work without dialogs.
+
+The event store records causation for every command. So:
+
+- A high-risk capability requires a user-originated event within a bounded number of causal hops and a bounded time.
+- Using it consumes the activation.
+- A background agent reacting to a web page has none, however valid its command looks.
+- Confirming the intent diff (7.3) grants activation scoped to that spec.
+
+This answers approval fatigue without adding prompts. The closest existing work is out-of-band approval [StepUp] and AP2's signed mandates [AP2], which are a cryptographic activation for one domain.
+
+### 12.9 Partitioning
+
+_Maturity M0–M1 · research potential high._
+
+A skill installed at profile level that observes every intent is a cross-site tracker. Browsers ended this for embedded content by partitioning storage by top-level site. Skill memory is partitioned by intent unless the user grants a wider scope. A skill that wants cross-intent memory must ask, visibly.
+
+### 12.10 Sandboxed third-party agents
+
+_Maturity M2–M3 · research potential medium._
+
+Third-party agents are embedded as an `<iframe>` is: default-deny, with explicit `sandbox` tokens, delegated permissions in the manner of Permissions Policy, and communication only through origin-checked messages. MCP Apps already render server-provided UI this way [AgentUI]. The stronger precondition is cross-origin isolation: the platform withholds its most powerful features from pages that have not proven isolation. An intent that has loaded no untrusted content may hold capabilities one that has loaded such content loses.
+
+### 12.11 The local/cloud boundary
+
+_Maturity M1–M2 · research potential high._
+
+Angular separates server from browser by provider configuration: some providers exist only in the server configuration, and browser-only code runs in hooks that never execute on the server. The boundary is structural. The runtime treats local and cloud the same way: a provider registered only in the local scope cannot be injected into a cloud step, the build checks that no `local-only` fragment can reach one, and taint is the second line. `privacy: local-only` moves from a run-time policy to a build error.
 
 ---
 
-## 8. Frontend Engineering as Reference Discipline: Build Time and Run Time
+## 13. Composition at Scale: SSR, Federation, Micro Frontends
 
-### 8.1 Why frontend engineering is relevant
+### 13.1 Server-side rendering of intents
 
-Part of the motivation for this work was the concern that code generation makes frontend engineering obsolete. The conclusion is more specific. Code generation does not eliminate systems architecture; it moves the value of the discipline upward, from producing UI code to designing composable runtime abstractions. And the frontend discipline has spent two decades solving exactly the problems an AI harness now encounters: decomposition and composition, state management, state machines, events, routing, lazy loading, caching, performance budgets, permissions, accessibility, design systems, observability, declarative configuration and progressive enhancement.
+_Maturity M1 · research potential high._
 
-The prerequisite research result treated this as one undifferentiated analogy. It is more useful to split it into the two phases every frontend engineer already thinks in: what happens at **build time** (resolving, checking, composing, testing, packaging) and what happens at **run time** (loading, injecting, routing, rendering, reacting, observing). The split matters because the two phases have different maturity on the AI side, and because build-time tooling is where the AI ecosystem is currently weakest.
+SSR exists because the server can do expensive work early and ship something useful before the client has loaded anything. The same asymmetry holds between a cloud runtime with frontier models and a local runtime with small ones.
 
-### 8.2 The two timelines side by side
-
-```text
-FRONTEND                                     AI HARNESS
-──────── build time ────────                 ──────── build time ────────
-source + package.json                        agent manifest + skill / context packages
-→ resolve from registry (npm) + lockfile     → resolve from registry + lockfile        [largely missing]
-→ type-check (tsc)                           → contract/schema check (capabilities, IOM, policies)
-→ lint (eslint)                              → harness lint (policy, budgets, versions)  [Section 5.5]
-→ bundle (vite/webpack): tree-shake, split   → compose presets and skill bundles; prune; lazy-split
-→ test (jest, playwright, snapshots)         → evals: replay from event store, golden runs, snapshots
-→ artifact (dist/)                           → versioned, signed agent release
-
-──────── run time ──────────                 ──────── run time ──────────
-load → DI resolve → route → render           load → capability resolve → schedule → execute
-→ store / selectors → effects → events       → canonical state / context selectors → tools, models → events
-→ reconcile DOM                              → project IOM
-→ DevTools / Web Vitals                      → Intelligence DevTools / AI Vitals
+```mermaid
+sequenceDiagram
+  participant U as User
+  participant L as Local runtime
+  participant C as Cloud runtime
+  U->>L: utterance
+  L->>C: parse and plan request (if policy permits)
+  C-->>L: streamed IOM snapshot and first artifacts
+  L-->>U: usable result before any local model runs
+  Note over L: hydrate on trigger only
+  U->>L: steering input (queued, replayed after hydration)
+  L->>L: check snapshot against event log
 ```
 
-### 8.3 Build-time analogies
+| SSR concept               | Intent counterpart                                                           |
+| ------------------------- | ---------------------------------------------------------------------------- |
+| Server render             | The cloud parses, cascades, plans and produces first artifacts               |
+| Streaming                 | The IOM arrives incrementally; the view renders placeholders                 |
+| Serialised state transfer | The snapshot ships with the result, so the local runtime re-derives nothing  |
+| Incremental hydration     | Local agents attach only where interaction happens                           |
+| Event replay              | Early user input is captured and replayed                                    |
+| Hydration mismatch        | Local re-derivation disagrees with the shipped snapshot: an error to surface |
+| Render mode per route     | Execution mode per subgoal type (11.4)                                       |
+| Static generation         | Prerendered intents (9.12)                                                   |
 
-**Package management and registries.** This is the largest gap. Frontend development is unimaginable without npm: scoped and namespaced packages, semantic versioning with declared ranges, lockfiles that pin an exact dependency tree, `peerDependencies` for things the host must provide, `engines` constraints, integrity hashes, public and private registries, provenance attestations linking a published package to its source commit and build, and `npm audit` against a vulnerability database. The AI side has pieces of this: tool interface standards such as the Model Context Protocol, plugin and skill catalogues attached to particular products, prompt and agent files committed to repositories. None of them yet offers the properties that make npm trustworthy at scale. The design here assumes a **skill registry** with:
+The privacy constraint decides which subgoals may be server-rendered at all.
 
-- A manifest declaring provided capabilities, required permissions, required model capabilities (as *peer* dependencies: the host supplies the model, the skill does not bundle it), context providers contributed, configuration presets, risk tier and audit events.
-- Semantic versioning for skills, prompts and context presets, with a lockfile pinning the exact set an agent release was evaluated against. Without a lockfile, two runs of "the same agent" are not the same agent.
-- Integrity hashes and provenance attestations, so that a skill's origin and build are verifiable. Prompt injection via dependency is the AI analogue of a compromised npm package, and the defences are the same shape.
-- An audit database for skills: known injection vectors, over-broad permission requests, deprecated model dependencies.
-- Evaluation results published alongside the package, in the role test results and coverage play today.
+### 13.2 Module federation and federated skills
 
-The proposed `@context/*`, `@skill/*` and `@model/*` package namespaces in the prerequisite research result are the beginning of this. What turns a naming convention into an ecosystem is the registry and the lockfile.
+_Maturity M1–M2 · research potential high._
 
-**Module resolution and bundling.** Bundlers resolve an import graph and emit optimised artifacts. Three bundler techniques transfer. *Tree-shaking* removes code never reached: the analogue is pruning context presets and skill bundles to what an agent's configuration actually requests, which doubles as token-budget control at build time. *Code splitting* defers loading until needed: context providers and skills that are expensive to initialise (indexing a repository, authenticating against a service) load lazily on first request. *Source maps* map emitted code back to its source: provenance (Section 4.7) is a source map from an output back to the context fragments and events that produced it.
+Module federation lets independently deployed applications share modules at run time. Its hard-won lesson is _shared dependency negotiation_: a host and its remotes must agree on one copy of a singleton, or dependency injection breaks. Native Federation reaches the same goal with import maps and ES modules.
 
-**Compilation and type systems.** TypeScript turns runtime failures into build-time errors by checking contracts. Capability schemas, IOM fragment schemas and agent configuration schemas can be checked the same way, and `browserslist`-style target declarations have an analogue in **model capability targets**: an agent package declares the minimum model capabilities it requires (tool use, structured output, vision, a context length), and the build fails or degrades if the configured model pool cannot satisfy them. The frontend answer to a missing platform feature is a *polyfill*; the runtime analogue is a *capability shim*, such as emulating structured output through a parsing tool for a small model that lacks it natively.
+| Federation concept                     | Runtime counterpart                                                                       |
+| -------------------------------------- | ----------------------------------------------------------------------------------------- |
+| Host and remotes                       | Intent workspace and independently deployed agent or skill providers                      |
+| Remote entry manifest                  | A2A agent card; skill manifest                                                            |
+| Shared singletons with strict versions | One model pool, one memory, one policy engine, one IOM schema version, negotiated at load |
+| Two copies of a singleton              | Two fragment-schema versions, or two verifiers where independence accounting assumes one  |
+| Import maps with scopes and integrity  | Capability alias tables per scope, with hashes from the lockfile                          |
+| Scoped custom-element registries       | Scoped skill registries, so two vendors can define the same name                          |
 
-**Static analysis.** Covered in Sections 5.4 and 5.5: ESLint as the architecture for declarative context composition, and linting the harness configuration for policy violations before execution.
+A2A standardises how a remote agent is discovered and called [A2A]. It does not negotiate shared dependencies, because it treats remote agents as opaque.
 
-**Testing and continuous integration.** Unit, integration and end-to-end tests have direct counterparts in evals at different granularity: a capability in isolation, an agent against a fixed context, an intent end to end. Two frontend testing ideas are worth importing specifically. *Snapshot tests* diff a rendered output against a stored baseline; context snapshot tests diff the constructed context for a reference task, catching silent changes in what a model receives. *Record-and-replay* end-to-end tests record network traffic and replay it; the event store makes this native: a recorded intent can be replayed against a new model version with every tool result fixed, isolating the model's contribution. Release gates in CI then become eval gates.
+### 13.3 Micro frontends and micro-agents
 
-**Design systems and component sandboxes.** A design-system component has a stable API, variants, states, composition rules, accessibility expectations and an implementation hidden behind a contract. A capability has the same anatomy (Section 3.4), and the implementation (local model, cloud model, API, tool) can change without the agent noticing. Storybook, the component sandbox, has an analogue in a **capability and agent playground**: run one capability in isolation, in each of its states, with controlled inputs, before composing it into an intent.
+_Maturity M2 · research potential medium._
 
-### 8.4 Run-time analogies
+Micro-frontend architectures compose independently owned fragments into one shell. The intent workspace is the shell.
 
-**Component model.** UI component → agent or capability; design-system component → agent archetype or reusable skill; props → task and context contract; local component state → agent execution state. These were in the prerequisite research result and hold without modification.
+| Composition style        | Micro frontends         | Micro-agents                                 |
+| ------------------------ | ----------------------- | -------------------------------------------- |
+| Build time               | Packages in one build   | Installed skills, one lockfile               |
+| Server side              | Edge or server includes | A gateway stitches remote agents and context |
+| Run time, soft isolation | Web components          | Shadow agents (7.10)                         |
+| Run time, hard isolation | Iframes                 | Sandboxed third-party agents (12.10)         |
 
-**State management.** Global store → canonical runtime state; selectors → context selectors (Section 5.1); actions and commands → runtime commands; reducers → projections; middleware → policy, validation and logging between proposal and command. The CQRS vocabulary and the Redux vocabulary describe the same shape, which is one reason frontend engineers find event sourcing natural.
-
-**Dependency injection.** Section 6.3. The injector hierarchy maps onto runtime scopes, the model router is a factory provider, and interceptor chains are policy middleware.
-
-**Routing.** Frontend routers are more than URL matching. A route configuration declares *guards* (may this route activate?), *resolvers* (fetch this data before activation) and *lazy loading* (load this module on first navigation). Task routing in the runtime has the same three hooks: policy guards (does this task require approval before any worker starts?), context resolvers (construct this context before the agent activates) and lazy skill loading. Expressing them declaratively in the agent configuration, as route configurations do, is the point.
-
-**Error boundaries and suspense.** An error boundary contains a failure to a subtree and renders a fallback. Agent failure containment is the same: a failed worker is contained to its subgoal, the IOM records `AgentFailed` and `SubgoalBlocked`, and the scheduler decides on retry, escalation or fallback without the whole intent collapsing. Suspense renders a placeholder while asynchronous data loads; the runtime equivalent is a session that can display partial IOM state while expensive context providers resolve.
-
-**Reconciliation and reactivity.** A virtual DOM diffs the desired tree against the current one and applies a minimal patch; fine-grained reactive systems (signals) notify only the subscribers of a changed value. Both transfer to the IOM. Projections compute the minimal change set between successive IOM states; agents subscribe to the IOM slices they care about (a verifier subscribes to `ArtifactCreated` on its subgoal, nothing else) rather than re-reading the whole graph. This is what makes context construction cheap enough to run on every step.
-
-**Hydration and replay.** Server-side rendering ships markup, and the client *hydrates* it into live state. Resuming an intent session is hydration from the event store: replay events, rebuild the IOM, re-attach agents. A paused tab and a crashed tab recover the same way.
-
-**Caching and staleness.** HTTP caching semantics and *stale-while-revalidate* (serve the cached value, refresh in the background) map onto epistemic state with unusual precision. An evidence record has `observed_at` and `verified_at`; a context provider can serve it as stale while a verification worker refreshes it, and the IOM marks it `stale` or `contradicted` on return. Memoisation of selectors is the analogue of memoising context fragments keyed on the IOM slice they depend on.
-
-**Lazy loading, module federation and micro-frontends.** Module federation lets independently deployed applications share modules at run time, and micro-frontend architectures compose independently owned UI fragments into one shell with isolation between them. The intent workspace is the shell; agents from different skill packages, possibly different vendors, compose inside it with isolated scopes, shared only through the IOM. The runtime-shared module is the installed skill, loaded once and resolved into every scope that requests it.
-
-**The accessibility tree.** This is the least obvious and perhaps the most instructive analogy. Browsers maintain, alongside the DOM, an accessibility tree: a semantic representation of the page consumed not by rendering but by machines (screen readers, automation). ARIA attributes let authors enrich it where the visual DOM is insufficient. The semantic capability layer of Section 7.7 is an accessibility tree for agents, and the capability declarations an AI-native website would publish are its ARIA. Two decades of accessibility engineering, including the hard lesson that semantics must be authored and cannot be reliably inferred from visuals, apply directly.
-
-**Progressive enhancement** → progressive compute escalation (Section 6.4). **Observability** (Web Vitals, real-user monitoring, DevTools) → AI Vitals and Intelligence DevTools (Chapter 9). **Feature flags** → policy toggles and model canaries: route a percentage of tasks to a new model version and compare evidence quality before promotion.
-
-### 8.5 Maturity gap analysis
-
-| Concern | Frontend ecosystem | AI harness ecosystem (as observed) | Needed |
-|---|---|---|---|
-| Package distribution | Registries, scoped packages, semver, lockfiles, provenance, audit | Product-specific catalogues, repository-committed files, interface standards without packaging | Skill registry with manifest, peer model dependencies, lockfile, attestations |
-| Static checking | Type systems, linters, schema validation | Mostly absent; errors surface at run time | Contract checking, harness linter |
-| Declarative composition | ESLint/bundler configs, route configs | Prompt files, ad-hoc YAML | Layered context configuration (Section 5.4) |
-| Dependency resolution | Hierarchical DI, factory providers | Hard-coded model and tool references | Scoped capability resolution with attenuation (Section 6.3) |
-| Testing | Unit, integration, e2e, snapshot, record/replay | Evals, often unversioned and non-reproducible | Event-store replay, context snapshot tests, eval gates |
-| Failure isolation | Error boundaries, process isolation | Whole-loop failure | Per-subgoal containment via IOM |
-| Debuggability | DevTools, source maps, time-travel debugging | Transcript reading | Intelligence DevTools over an event-sourced IOM |
-| Performance budgets | Bundle budgets, Web Vitals | Token counting | AI Vitals as SLOs |
-
-The pattern in the right-hand column is consistent: the AI ecosystem has run-time behaviour without build-time discipline. The frontend ecosystem acquired that discipline in response to scale and breakage; the AI ecosystem will need it for the same reasons.
-
-### 8.6 Where the analogy fails
-
-Three things have no frontend precedent and must be designed from first principles. *Probabilistic execution*: a component renders the same output for the same props; a model does not, so verification, confidence and retry are structural rather than exceptional. *Epistemic state*: frontend state is true by construction; runtime knowledge is believed with evidence and may be contradicted. *Intent as object*: no frontend abstraction represents what the user is trying to achieve; the IOM is new. Importing frontend patterns without adding these three produces a well-engineered harness that is still wrong about the nature of its workload.
+The known failures transfer. A shared global store between micro frontends becomes shared mutable memory between agents: forbidden, with the IOM and explicit events as the only shared surface. Duplicated dependencies are 13.2. Inconsistent experience is answered by the design system (9.10). Web components earned their place as the contract between teams because they are a standard and no framework owns them: attributes in, events out, slots and parts. The shadow-agent contract is deliberately the same shape.
 
 ---
 
-## 9. Observability and Debuggability
+## 14. Observability and Debuggability
 
-### 9.1 Intelligence DevTools
+### 14.1 Intelligence DevTools
 
-An event-sourced IOM makes a DevTools analogue not just possible but almost free. Proposed panels:
+_Maturity M2 · research potential medium._
 
-| Panel | Shows |
-|---|---|
-| Intent Graph | Goals, subgoals, dependencies, blockers, completion status |
-| Event Timeline | Ordered events with causality; scrubbing reconstructs the IOM at any point |
-| Agent Graph | Live agents, their states, workers, escalations |
-| Context Inspector | Exactly what a model received: identity, goal, files, decisions, retrieved knowledge, tool results, constraints, token budget; the resolved context configuration (`--print-config` analogue) |
-| Model Inspector | Selected model, selection reason, capabilities, latency, tokens, cost, retries, escalation history |
-| Memory Inspector | Contents and tier of each memory layer |
-| Capability Inspector | Granted, requested, denied capabilities and their policies |
-| Decision Inspector | Proposals, evidence, rationale, acceptance |
-| Resource / Cost Inspector | Budgets consumed per intent, agent, model |
+| Panel                     | Shows                                                                                                        |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| Intent Graph              | Spec and status, dependencies, blockers; assumptions highlighted                                             |
+| Event Timeline            | Ordered events with causality; scrubbing reconstructs the IOM                                                |
+| Agent Graph               | Live agents, states, workers, escalations; shadow roots where `open`                                         |
+| Context Inspector         | Exactly what a model received, by chunk, with included and excluded fragments and the resolved configuration |
+| **Constraint Inspector**  | The computed constraint per node with the winning declaration and the overridden ones struck through         |
+| **Coverage**              | Fragments and tokens that never influenced an outcome                                                        |
+| Model Inspector           | Selected model, reason, latency, tokens, cost, cache hit rate, retries                                       |
+| Memory Inspector          | Contents, tier and partition of each memory layer                                                            |
+| Capability Inspector      | Granted, requested and denied capabilities                                                                   |
+| **Security**              | Origins and taint per step, activations granted and consumed, report-only violations                         |
+| Decision Inspector        | Proposals, evidence, rationale, invalidations                                                                |
+| Resource / Cost Inspector | Budgets consumed per intent, agent, model                                                                    |
 
-### 9.2 A timeline
+DevTools features worth copying: breakpoints on events, conditional breakpoints, break on subtree modification for an IOM node, and local overrides for a tool result or fragment.
+
+### 14.2 A timeline
 
 ```text
-10:31 IntentCreated         10:34 TestExecuted
-10:31 GoalAdded             10:35 TestFailed
-10:32 PlanCreated           10:35 VerificationAgentSpawned
+10:31 IntentParsed          10:34 TestExecuted
+10:31 SpecConfirmed         10:35 TestFailed
+10:32 SubgoalCreated        10:35 VerificationRequested
 10:32 AgentAssigned         10:36 ContextExpanded
 10:33 ContextBuilt          10:36 ModelEscalated
-10:33 ModelInvoked          10:37 TestPassed
-10:34 CodeGenerated
+10:33 ModelInvoked          10:37 VerificationPassed
+10:34 ArtifactCreated       10:37 GoalCompleted
 ```
 
-Every line is a replayable point. Clicking `ModelEscalated` shows which decision model recommended escalation, on which evidence, under which budget.
+Every line is a replayable point. Clicking `ModelEscalated` shows which criterion failed, on which evidence, under which budget.
 
-### 9.3 AI Vitals
+### 14.3 AI Vitals
 
-Web Vitals turned user-perceived performance into a small set of measurable, budgetable metrics. The runtime equivalent, candidates for service-level objectives:
+_Maturity M2 for operator metrics; M0–M1 for user-centric ones · research potential high._
+
+Web Vitals worked because they measure what the user feels.
 
 ```text
-task success rate · context size · inference latency · tool latency · model cost
-retry rate · escalation rate · verification rate · correction rate
-human intervention rate · energy consumption
+Operator metrics:  task success rate · context size · inference latency · tool latency · model cost
+                   retry rate · escalation rate · verification rate · correction rate
+                   human intervention rate · energy consumption · cache hit rate
 ```
 
-These are only measurable because the runtime emits events for every stage. A transcript-based system cannot compute a retry rate.
+| Web Vital       | AI Vital                      | Measures                                                    |
+| --------------- | ----------------------------- | ----------------------------------------------------------- |
+| LCP             | Time to first useful artifact | When the user first has something of value                  |
+| INP             | **Steer latency**             | Time from a user interjection to a visible change of course |
+| CLS             | **Plan stability**            | How much the visible plan shifts without user input         |
+| CLS, second use | **Context layout shift**      | Share of the prompt prefix that changed between calls       |
+| (none)          | **Intent correction rate**    | How often the user edits the spec after confirming it       |
+
+Evals are lab data and production traces are field data. The web learned that they disagree and that the field is the truth.
+
+### 14.4 A protocol, not only a tool
+
+Chrome DevTools is a client of a protocol, and the protocol created an ecosystem. Intelligence DevTools should be the first client of an inspection protocol over the IOM and event store, aligned where possible with existing trace conventions and with the typed event streams already standardised for agent frontends [AgentUI].
 
 ---
 
-## 10. Prototype Strategy
+# Part VI: Evaluation
 
-### 10.1 Browser core selection
+## 15. Prototype Strategy
 
-| Core | Conceptual fit | Role |
-|---|---|---|
-| Chromium + CEF | Very high | Preferred prototype base |
-| WebKit | High | Architectural alternative |
-| Gecko / Firefox | High | Research alternative |
-| Raw V8 / JavaScriptCore | Low | An engine, not a platform |
+### 15.1 Browser core selection
 
-Chromium with the Chromium Embedded Framework is preferred because it provides a mature browser runtime while letting an external host application own the intelligence layer. The governing rule: do not fork a browser first, and do not put runtime logic into Chromium's C++ internals. Build the intelligence runtime as a separate host subsystem in a fast-iterating environment (TypeScript), integrate through explicit APIs and IPC, and only later, if proven, promote intelligence to a first-class browser process.
+| Core                    | Conceptual fit | Role                      |
+| ----------------------- | -------------- | ------------------------- |
+| Chromium + CEF          | Very high      | Preferred prototype base  |
+| WebKit                  | High           | Architectural alternative |
+| Gecko / Firefox         | High           | Research alternative      |
+| Raw V8 / JavaScriptCore | Low            | An engine, not a platform |
 
-### 10.2 Host architecture
+The governing rule: do not fork a browser first, and do not put runtime logic into Chromium's C++ internals. Build the intelligence runtime as a separate host subsystem in TypeScript, integrate through explicit APIs and IPC, and only later, if proven, promote intelligence to a first-class browser process.
 
-```text
-┌──────────────────────────────────────────────────────────────┐
-│                       AI Browser Host                        │
-│  ┌────────────────────────────────────────────────────────┐  │
-│  │  Intelligence Runtime (TypeScript)                     │  │
-│  │  IOM · event store · scheduler · context engine        │  │
-│  │  agents · model router · memory · skills · verifier    │  │
-│  └───────────────────────────┬────────────────────────────┘  │
-│                              │ browser adapter / IPC         │
-│  ┌───────────────────────────┴────────────────────────────┐  │
-│  │  CEF / Chromium                                        │  │
-│  │  tabs · pages · DOM · storage · networking             │  │
-│  │  workers · sandbox · permissions                       │  │
-│  └────────────────────────────────────────────────────────┘  │
-└──────────────────────────────────────────────────────────────┘
-Persistence: SQLite (intents, goals, agents, events, artifacts, decisions, evidence)
-Models:      local model runtime + optional cloud router
+### 15.2 Host architecture
+
+```mermaid
+flowchart TB
+  subgraph HOST["AI browser host"]
+    subgraph IR["Intelligence runtime (TypeScript)"]
+      a["IOM, constraint model, event store, scheduler"]
+      b["context engine, model router, memory, skills, verifier, security kernel"]
+    end
+    subgraph CEF["CEF / Chromium"]
+      c["tabs, pages, DOM, storage, networking, workers, sandbox, permissions"]
+    end
+    IR <-->|"browser adapter / IPC"| CEF
+  end
+  IR --> DB[("SQLite: events, projections<br/>content store: encrypted payloads")]
+  IR --> MOD["Local model runtime + optional cloud router"]
 ```
 
-### 10.3 Phases
+### 15.3 Phases
 
-1. **IOM and runtime.** Intent, goals, subgoals, agents, events, state, scheduler. No browser integration. Proves the abstraction.
-2. **Context engine.** Providers, selectors, memory tiers, knowledge, event-derived context, declarative context configuration.
-3. **Model router.** Local small, local large, cloud; capability profiles; escalation; budgets.
-4. **Browser integration.** CEF: tabs, pages, navigation, read, search, forms, downloads, authentication.
-5. **Semantic capability layer.** `SearchWeb`, `ReadPage`, `FillForm`, `SubmitForm`, `DownloadArtifact`, `Schedule`, `Purchase`.
-6. **Intelligence DevTools.** Intent graph, event timeline, agent graph, context, model, memory and capability inspectors.
+0. **Baseline.** A plain single-loop agent on real tasks, instrumented. Every later phase must beat it on a stated metric.
+1. **IOM and runtime.** Parser with intent diff, spec/status, events, versions, scheduler. No browser. Proves the abstraction.
+2. **Constraint model and security kernel.** Cascade, origins, taint, sink guards, activation.
+3. **Context engine and build pipeline.** Providers, declarative configuration, chunks, budgets, lint, lockfile.
+4. **Model router.** Local small, local large, cloud; conformance probes; escalation judged by criteria.
+5. **Browser integration.** CEF: tabs, navigation, read, search, forms, downloads, authentication.
+6. **Semantic capability layer.** `SearchWeb`, `ReadPage`, `FillForm`, `SubmitForm`, `Schedule`, `Purchase`; WebMCP where offered.
+7. **Intelligence DevTools.**
 
-### 10.4 Runtime shape
+Security moved from an afterthought to phase 2 because an object model that scripts can drive is an attack surface from its first day (5.1).
+
+### 15.4 Runtime shape
 
 ```ts
 interface IntelligenceRuntime {
+  parser: IntentParser;
   intents: IntentStore;
+  constraints: ConstraintEngine;
   events: EventStore;
   context: ContextEngine;
   scheduler: Scheduler;
@@ -1059,153 +1913,289 @@ interface IntelligenceRuntime {
   capabilities: CapabilityRegistry;
   memory: MemoryStore;
   verifier: VerificationEngine;
+  security: SecurityKernel;
 }
 
-interface Agent      { id: string; capabilities: CapabilityRequirement[]; state: AgentState;
-                       execute(task: AgentTask): Promise<AgentResult>; }
-interface Model      { id: string; capabilities: ModelCapabilities;
-                       invoke(request: ModelRequest): Promise<ModelResult>; }
-interface ModelRouter{ select(req: ModelRequirements, policy: ResourcePolicy): Promise<Model>; }
-interface Capability { id: string; description: string; inputSchema: unknown; outputSchema: unknown;
-                       permissions: Permission[]; risk: RiskLevel;
-                       execute(input: unknown): Promise<unknown>; }
+interface Agent {
+  id: string;
+  capabilities: CapabilityRequirement[];
+  state: AgentState;
+  execute(task: AgentTask, signal: AbortSignal): Promise<AgentResult>;
+}
+interface Model {
+  id: string;
+  capabilities: ModelCapabilities;
+  invoke(request: ModelRequest): Promise<ModelResult>;
+}
+interface ModelRouter {
+  select(req: ModelRequirements, policy: ResourcePolicy): Promise<Model>;
+}
+interface Capability {
+  id: string;
+  description: string;
+  inputSchema: unknown;
+  outputSchema: unknown;
+  permissions: Permission[];
+  risk: RiskLevel;
+  safe: boolean;
+  idempotent: boolean;
+  sinks?: SinkPolicy[];
+  preflight?(input: unknown): Promise<PreflightResult>;
+  execute(input: unknown): Promise<unknown>;
+}
 ```
 
-The flow these interfaces enforce: agent requests capability → router selects → model computes → runtime records → event.
-
-### 10.5 Declarative agent manifest
-
-The prerequisite research result's YAML configuration, extended with the build-time concerns of Chapter 8 (versioned dependencies, model capability targets, lockfile reference):
+### 15.5 Declarative agent manifest
 
 ```yaml
 agent:
   name: coding-agent
-  version: 1.4.0
+  version: 2.0.0
+  mode: shadow # light | shadow (7.10)
+  inspect: open
 
-dependencies:                      # resolved from a skill registry, pinned by lockfile
-  "@skill/filesystem": ^2.1.0
-  "@skill/git": ^3.0.0
-  "@skill/test-runner": ~1.2.0
-  "@context/repository": ^1.0.0
-  "@context-config/coding": ^0.9.0
+dependencies: # resolved from a skill registry, pinned by lockfile
+  '@skill/filesystem': ^2.1.0
+  '@skill/git': ^3.0.0
+  '@skill/test-runner': ~1.2.0
+  '@context/repository': ^1.0.0
+  '@context-config/coding': ^0.9.0
 
-peerModelCapabilities:             # supplied by the host's model pool, not bundled
+peerModelCapabilities: # supplied by the host's model pool
   toolUse: required
   structuredOutput: required
   minContextTokens: 32000
+  conformance: '@conformance/coding@^1' # a behavioural suite, not a model name
 
-context: ./context.config.js       # Section 5.4
+context: ./context.config.js
+constraints: ./agent.constraints
+machine: ./agent.machine.ts
+prompts: ./prompts/
 
 models:
-  candidates: [local-coder-small, local-coder-large, cloud-coder]
-
-policy:
-  privacy: local_preferred
-  max_context_tokens: 32000
-  max_cost: 0.50
-  verification: required
+  candidates:
+    - { id: local-coder-small, class: vendored }
+    - { id: local-coder-large, class: vendored }
+    - { id: cloud-coder, class: pinned-snapshot }
 ```
 
-### 10.6 Twelve-factor mapping (operations layer)
+Privacy, cost and verification, which 1.0 kept in a `policy` block, are now constraint declarations (8.2).
 
-| Factor | Runtime interpretation |
-|---|---|
-| Codebase | Agent and runtime definition |
-| Dependencies | Models, skills, tools, context providers (declared, pinned) |
-| Config | Routing, context, policy, privacy, budgets |
-| Backing services | Event store, vector store, model server, browser, filesystem, cloud models |
-| Build / release / run | Package and evaluate → release → execute |
-| Processes | Disposable inference and agent workers with external durable state |
-| Port binding | Capability interfaces |
-| Concurrency | Parallel agents, model and tool calls |
-| Disposability | Disposable worker and model instances |
-| Dev/prod parity | Same runtime, model and context contracts across environments |
-| Logs | Agent, model, tool and context events |
-| Admin processes | Reindex, replay, rebuild projections, evaluate models |
+### 15.6 Twelve-factor mapping (operations layer)
 
-One caveat: loaded models and KV caches hold substantial run-time state, so "stateless process" must be read as "durable semantic state is external", not "no state in memory". Twelve-factor governs deployment; statecharts, CQRS, context and the IOM govern behaviour.
+| Factor                | Runtime interpretation                                                     |
+| --------------------- | -------------------------------------------------------------------------- |
+| Codebase              | Agent and runtime definition                                               |
+| Dependencies          | Models, skills, tools, context providers (declared, pinned)                |
+| Config                | Routing, context, constraints, budgets                                     |
+| Backing services      | Event store, vector store, model server, browser, filesystem, cloud models |
+| Build / release / run | Package and evaluate → release → execute                                   |
+| Processes             | Disposable inference and agent workers with external durable state         |
+| Port binding          | Capability interfaces                                                      |
+| Concurrency           | Parallel agents, model and tool calls                                      |
+| Disposability         | Disposable worker and model instances                                      |
+| Dev/prod parity       | Same runtime, model and context contracts across environments              |
+| Logs                  | Agent, model, tool and context events                                      |
+| Admin processes       | Reindex, replay, rebuild projections, evaluate models, audit drift         |
 
----
-
-## 11. Discussion
-
-### 11.1 Related concepts
-
-The architecture is not built from nothing, and naming its ancestors sharpens what is new. The IOM as shared coordination substrate is a blackboard architecture with validated writes. Isolated workers communicating through events are an actor model. The agent as role plus state plus policies has affinities with belief-desire-intention agents, and the epistemic state record is a pragmatic version of belief maintenance. Durable, replayable orchestration resembles workflow engines. Tool interface standards such as the Model Context Protocol address the capability interface and are complementary; they do not address packaging, resolution, scheduling or the IOM. External model-routing services address one subsystem and should remain one.
-
-### 11.2 Risks and open questions
-
-- **Over-engineering.** A full event-sourced runtime is heavy for a single-agent task. The phased strategy mitigates this, and a minimal v0 should be measured against a plain agent loop on real tasks before the architecture is extended.
-- **The IOM as bureaucracy.** If every trivial step requires a validated command, latency and cost rise. The remedy is granularity: not every token is an event, but every state change is.
-- **Scheduling intelligence.** A scheduler that reasons about allocation is itself probabilistic at the margin. Keeping the decision proposal and the deterministic enforcement separate is the only defensible structure, but the quality of allocation decisions is an empirical question.
-- **Standardisation.** The DOM succeeded because browser vendors converged under competitive and standards pressure over many years. An IOM standard would need the same, and the incentives for runtime vendors are not obviously aligned.
-- **Capability-oriented web security.** Machine-readable capability declarations are an attack surface. The attenuation rule of Section 6.3 and the risk-tiered approval policy of Section 7.6 are necessary, not sufficient.
-- **Registry governance.** A skill registry inherits every supply-chain problem npm has, plus prompt injection. Provenance and audit tooling must exist from the start, not be retrofitted.
-
-### 11.3 Governance relevance
-
-The properties this architecture produces as engineering by-products are the properties regulated environments require: a complete, replayable record of inputs and decisions; separation between a probabilistic proposer and a deterministic authoriser; explicit, risk-tiered approval for consequential actions; provenance for every artifact; and verification independent of generation. For organisations operating under AI, data-protection and operational-resilience regulation, an event-sourced intent runtime is closer to auditable by construction than any transcript-based harness can be. This is an argument for the design, not a claim of compliance, which depends on far more than architecture.
-
-### 11.4 Threats to validity
-
-Analogy-driven design risks importing solutions to problems one does not have and missing problems the reference system never had. Section 8.6 names the second risk explicitly. The first is addressed by the phased prototype: every imported mechanism must earn its place against a measured baseline. The thesis is also the product of a single design conversation; its claims about ecosystem maturity (Section 8.5) reflect the state of that discussion and should be re-examined as tooling evolves.
+Loaded models and KV caches hold substantial run-time state, so "stateless process" must be read as "durable semantic state is external". Twelve-factor governs deployment; the rest of this thesis governs behaviour. 12-Factor Agents [12FA] applies the same spirit to agent code.
 
 ---
 
-## 12. Conclusion
+## 16. Maturity and Research Register
 
-The argument converges on ten theses:
+### 16.1 The gap in one sentence
 
-1. **Model size is not the whole intelligence problem.** Useful intelligence is model plus context plus tools plus memory plus state plus planning plus verification plus orchestration.
-2. **Agents are not models.** Agents are runtime objects with lifecycle; models are compute resources.
-3. **Context is constructed, not dumped.** It is a task-specific, policy-governed projection of a larger state and knowledge environment.
-4. **Memory is a topology.** Different information needs different persistence and retrieval semantics.
-5. **Events are first-class.** Durable temporal history, not final outputs, is the source of truth.
-6. **Browser architecture is a valid reference.** It has already solved most of the infrastructure problems of a general-purpose intelligence environment.
-7. **Intent should be a first-class runtime object.** That is the purpose of the IOM.
-8. **The IOM can be the DOM of an intelligence platform.** A shared semantic substrate between agents, runtime, tools, models, UI and DevTools.
-9. **An AI browser is not browser plus chatbot.** It is browser runtime plus intent runtime plus capability layer plus model runtime.
-10. **Frontend engineering remains relevant at the abstraction level, in both phases.** Its run-time patterns (components, stores, selectors, state machines, DI, routing, error boundaries, reconciliation, caching) transfer with modification; its build-time discipline (registries, lockfiles, type checking, linting, bundling, testing) is what the AI ecosystem most lacks.
+The AI ecosystem has run-time behaviour without build-time discipline, and permissions without origins. The frontend ecosystem acquired both in response to scale and breakage.
+
+### 16.2 Register
+
+Phase: **B** build time, **R** run time. Maturity rates the AI counterpart (2.5).
+
+| #   | Concept                                   | Web / frontend source               | Phase | Maturity | Closest existing work                  | Research potential |
+| --- | ----------------------------------------- | ----------------------------------- | ----- | -------- | -------------------------------------- | ------------------ |
+| 1   | Model as compute resource                 | V8                                  | R     | M4       | Inference engines                      | Low                |
+| 2   | Intelligence runtime as a whole           | Browser                             | R     | M2       | Harness SDKs, agentic browsers         | High               |
+| 3   | IOM with spec/status                      | DOM, Kubernetes                     | R     | M1       | IAL, checkpoints                       | High               |
+| 4   | Specified intent parsing, intent diff     | HTML parser                         | B/R   | M1       | AP2 mandates, spec-driven tooling      | High               |
+| 5   | Acceptance criteria as nodes              | n/a                                 | R     | M1–M2    | Test-driven agent loops                | Medium             |
+| 6   | Constraint cascade                        | CSS cascade                         | B/R   | M1       | Instruction hierarchy, prompt layering | High               |
+| 7   | Typed, registered constraints             | CSS Typed OM, `@property`           | B     | M2       | Policy-as-code, structured outputs     | Medium             |
+| 8   | Derivation pipeline, invalidation classes | Rendering pipeline                  | R     | M0–M1    | Incremental build systems              | High               |
+| 9   | Event-sourced state, time travel          | Event sourcing                      | R     | M2–M3    | Checkpointing, durable execution       | Medium             |
+| 10  | Versions, transactions, locks, forks      | ETag, IndexedDB, Web Locks          | R     | M1       | Worktrees for coding agents            | High               |
+| 11  | Typed epistemic status and retraction     | Signals                             | R     | M1       | Truth maintenance, citations           | High               |
+| 12  | Shadow agents                             | Shadow DOM                          | R     | M2       | Sub-agents with isolated context       | Medium             |
+| 13  | Oversight tree                            | Accessibility tree, AOM             | R     | M1       | AG-UI events, traces                   | High               |
+| 14  | Capability tree for the web               | ARIA                                | R     | M2       | WebMCP, MCP, NLWeb                     | Medium             |
+| 15  | Community capability declarations         | DefinitelyTyped                     | B     | M0–M1    | n/a                                    | Medium             |
+| 16  | Declarative context composition           | ESLint flat config                  | B     | M2       | AGENTS.md, skills, Priompt             | Medium–High        |
+| 17  | Harness and constraint linter             | ESLint                              | B     | M1–M2    | Skill scanners                         | Medium             |
+| 18  | AOT-compiled context plans                | Angular AOT                         | B     | M1       | DSPy, BAML                             | Medium–High        |
+| 19  | Conformance suites and probing            | WPT, test262, feature detection     | B     | M1–M2    | Benchmarks                             | High               |
+| 20  | Capability shims                          | Polyfills                           | B/R   | M2       | Provider abstraction layers            | Medium             |
+| 21  | Cache-aware context chunks                | Chunk splitting, content hashes     | B     | M2       | Manual practice, cache breakpoints     | Medium             |
+| 22  | Critical-context extraction               | Critical CSS inlining               | B     | M1–M2    | Progressive disclosure in skills       | High               |
+| 23  | Context budgets in CI                     | Bundle budgets                      | B     | M2       | Token counting                         | Low–Medium         |
+| 24  | Skill registry and lockfile               | npm                                 | B     | M2       | ToolHive, APM, Quiver, MCP Registry    | Medium             |
+| 25  | Model dependency classes, fingerprints    | `peerDependencies`, audit           | B     | M1       | Model cards, evals                     | High               |
+| 26  | Evals as tests, three replay modes        | Record and replay                   | B     | M2–M3    | Eval platforms                         | Medium             |
+| 27  | Context coverage, mutation testing        | Coverage panel, mutation testing    | B     | M1       | Ablation practice                      | High               |
+| 28  | Metamorphic parser tests, pseudo-model    | Property tests, pseudo-localisation | B     | M1       | n/a                                    | Medium–High        |
+| 29  | Migrations for model upgrades             | `ng update`                         | B     | M1       | Prompt optimisers                      | Medium–High        |
+| 30  | Prerendered intents                       | Static generation                   | B     | M1       | Workflow templates                     | Medium             |
+| 31  | Memory topology                           | Browser storage tiers               | R     | M2–M3    | Memory frameworks                      | Medium             |
+| 32  | Erasure by crypto-shredding               | n/a                                 | R     | M2       | Event-sourcing practice                | Medium             |
+| 33  | Hierarchical DI with attenuation          | Angular DI                          | R     | M2       | Permission modes                       | Medium             |
+| 34  | Control-plane statechart                  | XState, SCXML                       | R     | M3       | Graph frameworks                       | Low–Medium         |
+| 35  | Priorities, yielding, abort               | Task scheduling, `AbortSignal`      | R     | M2       | Interrupt and steer features           | Medium             |
+| 36  | Routing and escalation by criteria        | Progressive enhancement             | R     | M3       | Model routers                          | Medium             |
+| 37  | Verification independence                 | n/a                                 | R     | M2       | Model-as-judge, tests                  | High               |
+| 38  | Update lifecycle under live intents       | Service-worker lifecycle            | R     | M1       | Ad hoc pinning                         | Medium–High        |
+| 39  | Incremental resume, event replay          | Incremental hydration               | R     | M2       | Checkpoint resume                      | Medium             |
+| 40  | Origin model for context                  | Same-origin policy                  | R     | M1       | SOPGuard                               | High               |
+| 41  | CORS for context, preflight               | CORS                                | R     | M1       | WebMCP origin gating                   | High               |
+| 42  | CSP for intents, report-only              | CSP                                 | B/R   | M1       | Allow-lists                            | Medium–High        |
+| 43  | Trusted Types for sinks                   | Trusted Types                       | R     | M1       | CaMeL                                  | High               |
+| 44  | Taint and opaque handles                  | Tainted canvas, opaque responses    | R     | M1–M2    | Dual LLM, CaMeL, FIDES                 | High               |
+| 45  | User activation by causality              | User activation                     | R     | M0–M1    | Step-up approval, AP2                  | High               |
+| 46  | Memory partitioning                       | Storage partitioning                | R     | M0–M1    | n/a                                    | High               |
+| 47  | Server-rendered intents; federated skills | SSR; module federation              | B/R   | M1–M2    | Cloud agents; A2A, Agent Plugins       | High               |
+| 48  | User-centric AI Vitals                    | Core Web Vitals                     | R     | M0–M1    | Observability platforms                | High               |
+
+### 16.3 Reading the register
+
+Three patterns stand out. The highest research potential clusters where the web has a _security_ mechanism (rows 40 to 46) and where it has a _derivation_ mechanism (rows 4, 6, 8, 22). Packaging and orchestration (rows 24, 34, 36) are mostly consolidation work. And every M0–M1 row with high potential is something a frontend engineer already understands better than most AI engineers, which is the practical argument of this thesis.
+
+---
+
+## 17. Discussion
+
+### 17.1 Where the analogy fails
+
+Three things have no web precedent. _Probabilistic execution_: a component renders the same output for the same inputs; a model does not, so verification and retry are structural. _Epistemic state_: frontend state is true by construction; runtime knowledge is believed with evidence. _Intent as object_: no frontend abstraction represents what the user is trying to achieve. A fourth belongs with them: _the consumer can be talked into things_. A rendering engine cannot be persuaded by the document it renders. That is why Chapter 12 enforces after the model.
+
+### 17.2 Risks and open questions
+
+- **Over-engineering.** A full runtime is heavy for a single-agent task. Phase 0 exists so that every mechanism earns its place.
+- **The IOM as bureaucracy.** Mitigated by shadow agents and invalidation classes. Whether the remaining overhead pays is empirical.
+- **Intent fidelity.** The parser can be specified; meaning cannot be verified. The intent diff shifts the risk to a place where the user can see it.
+- **The cascade is powerful and easy to misuse.** Specificity wars are a known pathology. Layers and a linter help.
+- **Taint is conservative.** Everything touched by untrusted content loses privileges, which costs utility; CaMeL reports the same trade [CaMeL].
+- **Scheduling intelligence.** A scheduler that reasons is probabilistic at the margin.
+- **Standardisation.** A venue exists; adoption is not guaranteed, as Web Intents shows.
+- **Counterfactual evaluation.** Trajectory replay stops at divergence. Simulated capabilities are an open problem.
+- **Registry governance.** A skill registry inherits every supply-chain problem of npm, plus prompt injection.
+
+### 17.3 Governance relevance
+
+The properties this architecture produces as by-products are those regulated environments require: a replayable record of inputs and decisions; separation of a probabilistic proposer from a deterministic authoriser; explicit, risk-tiered, causally grounded approval; provenance and origin for every artifact; verification with recorded independence; a stable oversight projection; and erasure that leaves the audit chain intact. This is an argument for the design, not a claim of compliance.
+
+### 17.4 Threats to validity
+
+Analogy-driven design risks importing solutions to problems one does not have and missing problems the reference system never had. Section 17.1 names the second risk; Phase 0 and the ablation gates address the first. The declared bias of 1.4 is a threat too: a reader fluent in other frameworks may find mappings this thesis overlooked. The maturity ratings are one group's judgement. Statements about the ecosystem were checked in November 2026 against sources of mixed quality, including vendor documentation and secondary reporting, and should be re-examined before publication.
+
+---
+
+## 18. Conclusion
+
+1. **Model size is not the whole intelligence problem.**
+2. **Agents are not models.** Agents are runtime objects with lifecycle; models are compute.
+3. **Context is constructed, not dumped**, and laid out stable-first.
+4. **Memory is a topology.**
+5. **Events are first-class.**
+6. **Browser architecture is a valid reference**, including its parser, its cascade and its origins.
+7. **Intent is a first-class runtime object**, parsed by a specified procedure and confirmed by the user.
+8. **Spec belongs to the user, status to the system.**
+9. **Structure, constraints and behaviour are separate languages** with separate object models.
+10. **Policy is resolved by a cascade outside the model.**
+11. **Security starts with origins.** Enforcement happens after the model, on what it proposes.
+12. **An AI browser is not browser plus chatbot.**
+13. **Control is mandatory, cognition is optional.**
+14. **Frontend engineering remains relevant in both phases.** Its build-time discipline is what the AI ecosystem most lacks, and its platform knowledge is what AI security most needs.
 
 In one sentence:
 
-> The proposed AI browser is a browser-like intelligence runtime in which each tab represents a user intent, the Intent Object Model is the shared, event-sourced semantic object graph for that intent, agents and workers collaborate through state and events, context is constructed declaratively from memory, knowledge and state, capabilities are resolved and negotiated through explicit, scoped interfaces, models are interchangeable compute resources selected by a scheduler and router, and the entire system is observable and auditable through intent-oriented DevTools.
+> The proposed AI browser is a browser-like intelligence runtime in which each tab represents a user intent; the intent is parsed into a confirmed specification, constrained by a cascade and reconciled by a scheduler into an event-sourced status; agents and workers collaborate through that shared object model; context is composed declaratively at build time and laid out for caching at run time; every value carries an origin and every consequential action a causal link to the user; models are interchangeable compute selected by measured capability; and the whole system is inspectable through intent-oriented DevTools.
 
-The deepest abstraction is therefore not the LLM, the agent, the page or the chat transcript. It is the intent, and the runtime that holds it.
+The deepest abstraction is not the LLM, the agent, the page or the transcript. It is the intent, and the runtime that holds it.
 
 ---
 
 ## Appendix A. Glossary
 
-| Term | Meaning |
-|---|---|
-| Intelligence runtime | Persistent execution environment coordinating AI computation |
-| AI browser | A browser-like runtime organised around user intent |
-| Intent platform | General platform for intent-driven execution |
-| IOM (Intent Object Model) | Shared, inspectable, event-sourced object graph of an active intent |
-| Intent object graph | The graph interpretation of the IOM |
-| Intent workspace | User-facing tab or session for one active intent |
-| Agent | Stateful runtime role with lifecycle, policies and capability requirements; not a model |
-| Worker | Isolated unit of concurrent execution |
-| Capability | Explicitly declared, schema-bound, permissioned executable function or resource |
-| Skill | Versioned package bundling capabilities, providers and presets |
-| Capability negotiation | Scored resolution of a capability requirement against candidate implementations |
-| Context provider | Adapter supplying context fragments from a source |
-| Context engine | Composes fragments into a model-specific context snapshot under policy |
-| Context configuration | Layered declarative specification of providers, fragment rules, processors and budgets |
-| Harness linter | Static checker for agent configurations and policies |
-| Model router | Selects a compute resource under requirements and policy; a factory provider |
-| Model capability target | Minimum model features an agent package requires from the host |
-| Event store | Durable, append-only temporal execution history |
-| State store | Current truth projected from events |
-| Memory | Historical and learned information, tiered |
-| Knowledge | External, retrievable information |
-| Epistemic state | Explicit record of proposition, value, confidence, evidence and verification |
-| Provenance graph | Links from an artifact to its producer, model, context, evidence and events |
-| Scheduler | Allocates workers, models, tools and budgets; reacts to events |
-| Verification agent | Independent validation role |
-| Intelligence DevTools | Inspection and debugging environment over the IOM and event store |
-| AI Vitals | Runtime metrics usable as service-level objectives |
-| Profile | Persistent personal intelligence environment shared by all sessions |
-| Semantic capability layer | High-level browser and service capabilities exposed to agents instead of raw DOM operations |
-| Skill registry | Versioned, attested package distribution for skills, providers and presets |
+| Term                            | Meaning                                                                                               |
+| ------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| Intelligence runtime            | Persistent execution environment coordinating AI computation                                          |
+| AI browser                      | A browser-like runtime organised around user intent                                                   |
+| IOM (Intent Object Model)       | Shared, inspectable, event-sourced object graph of an active intent                                   |
+| Spec / status                   | User-owned statement of what is wanted / system-derived account of what has been done                 |
+| Intent parser                   | Specified procedure turning an utterance into a confirmed spec                                        |
+| Intent diff                     | The parsed spec rendered back to the user for confirmation                                            |
+| Acceptance criterion            | A checkable condition that defines when a goal is done                                                |
+| Constraint model                | All constraint declarations plus the computed value per node                                          |
+| Constraint sheet                | A file of constraint rules with selectors over the IOM                                                |
+| Cascade                         | Deterministic resolution of competing constraints by origin, importance, layer, specificity and order |
+| Oversight tree                  | Derived projection of the IOM for people, auditors and assistive technology                           |
+| Capability tree                 | Semantic view of what the outside world offers to agents                                              |
+| Intent workspace                | User-facing tab or session for one active intent                                                      |
+| Agent                           | Stateful runtime role with lifecycle, policies and capability requirements; not a model               |
+| Light / shadow agent            | Agent whose every step is an IOM command / agent that runs encapsulated behind a declared surface     |
+| Worker                          | Isolated unit of concurrent execution                                                                 |
+| Capability                      | Explicitly declared, schema-bound, permissioned executable function or resource                       |
+| Skill                           | Versioned package bundling capabilities, providers and presets                                        |
+| Capability negotiation          | Scored resolution of a requirement against candidate implementations                                  |
+| Capability shim                 | Adapter that provides a stable contract over differing implementations                                |
+| Context provider / engine       | Adapter supplying fragments / composer of a snapshot under a compiled plan                            |
+| Context chunk                   | A volatility class of context with a cache breakpoint at its end                                      |
+| Critical context                | The fragments needed for an agent's first decision                                                    |
+| Harness linter                  | Static checker for agent configurations, constraints and policies                                     |
+| Model router                    | Selects a compute resource under requirements and policy; a factory provider                          |
+| Conformance suite               | Behavioural tests for a capability contract, run against models                                       |
+| Behavioural fingerprint         | Hash of conformance results recorded in the lockfile                                                  |
+| Event store                     | Durable, append-only temporal execution history                                                       |
+| Epistemic status                | Whether a piece of evidence is observed, inferred, verified, stale or contradicted                    |
+| Provenance graph                | Links from an artifact to its producer, model, context, evidence, origins and events                  |
+| Origin                          | Identity of whoever contributed a piece of context or a value                                         |
+| Taint                           | The set of untrusted origins that influenced a step or value                                          |
+| Sink guard                      | Check that a sensitive argument has trusted provenance or passed a sanitiser policy                   |
+| User activation                 | A causal link from a command to a recent, real user action                                            |
+| Invalidation class              | The earliest derivation stage a change makes dirty                                                    |
+| Control plane / cognitive plane | Mandatory authority, audit and isolation / optional thinking procedure                                |
+| Scheduler                       | Reconciles status toward spec; allocates workers, models and budgets                                  |
+| Intelligence DevTools           | Inspection and debugging environment over the IOM and event store                                     |
+| AI Vitals                       | Runtime metrics usable as service-level objectives                                                    |
+| Profile                         | Persistent personal intelligence environment shared by all sessions                                   |
+| Skill registry                  | Versioned, attested package distribution for skills, providers and presets                            |
+
+---
+
+## References
+
+Works are cited by key. URLs are given where the source was consulted in November 2026; classic works are cited by author and year. Several sources are vendor documentation or secondary reporting and should be verified before external publication.
+
+- **[12FA]** HumanLayer. _12-Factor Agents._ 2025. https://github.com/humanlayer/12-factor-agents
+- **[A2A]** Agent2Agent Protocol, v1.0; hosted by the Agentic AI Foundation since August 2026. https://a2a-protocol.org
+- **[AAIF]** Linux Foundation. _Agentic AI Foundation Announces Four New Projects: Agent Skills, Open Responses, OpenEnv, and OpenSandbox._ 22 October 2026. https://www.linuxfoundation.org/press/agentic-ai-foundation-announces-four-new-projects-agent-skills-open-responses-openenv-and-opensandbox · Agent Skills: https://agentskills.io
+- **[Absorb]** O'Reilly Radar (2026) and Latent Space (August 2026), essays on models absorbing agent harnesses. https://www.oreilly.com/radar/ · https://www.latent.space/
+- **[AgentUI]** AG-UI Protocol 1.0 (September 2026), https://github.com/ag-ui-protocol/ag-ui · A2UI, _How Does A2UI Compare?_ (covers MCP Apps, SEP-1865), https://a2ui.org/introduction/agent-ui-ecosystem/
+- **[Angular]** Angular roadmap and documentation: signals, incremental hydration, route-level render modes. https://angular.dev/roadmap
+- **[AOM]** WICG. _Accessibility Object Model_ and implementation status. https://wicg.github.io/aom/spec · https://wicg.github.io/aom/caniuse.html
+- **[AP2]** Google. _Announcing Agent Payments Protocol (AP2)._ September 2025. https://cloud.google.com/blog/products/ai-machine-learning/announcing-agents-to-payments-ap2-protocol
+- **[CaMeL]** Debenedetti et al. _Defeating Prompt Injections by Design._ arXiv:2503.18813, 2025.
+- **[Cascade]** MDN. _Introduction to the CSS cascade._ https://developer.mozilla.org/en-US/docs/Web/CSS/CSS_cascade/Cascade
+- **[IAL]** _Towards an Intention Abstraction Layer for Autonomous Industrial Systems._ arXiv:2607.14553, 2026.
+- **[Lock]** Skill packaging and supply chain: ToolHive lockfile, https://pkg.go.dev/github.com/stacklok/toolhive · APM, https://pypi.org/project/apm-cli/ · Quiver, https://pkg.go.dev/github.com/astra-sh/qvr · NVIDIA verified agent skills, https://developer.nvidia.com/blog/nvidia-verified-agent-skills-provide-capability-governance-for-ai-agents/ · Snyk, _ToxicSkills_, February 2026 (as reported).
+- **[Manus]** Ji, Y. _Context Engineering for AI Agents: Lessons from Building Manus._ July 2025. https://manus.im/blog/Context-Engineering-for-AI-Agents-Lessons-from-Building-Manus
+- **[ManyIH]** _Many-Tier Instruction Hierarchy in LLM Agents._ arXiv:2604.09443, 2026.
+- **[MCP]** Model Context Protocol. https://modelcontextprotocol.io
+- **[MemGPT]** Packer et al. _MemGPT: Towards LLMs as Operating Systems._ arXiv:2310.08560, 2023.
+- **[Priompt]** Lunnemark, A. _Prompt design._ Cursor, 2023. https://cursor.com/blog/prompt-design · https://github.com/anysphere/priompt
+- **[SOPGuard]** Wang, Chen, Li, Song, Gong. _Same-Origin Policy for Agentic Browsers._ arXiv:2606.14027, 2026.
+- **[StepUp]** WorkOS. _Step-up authentication for AI agents._ 2026. https://workos.com/blog/step-up-authentication-ai-agents
+- **[Taint]** React documentation. _experimental_taintObjectReference._ https://react.dev/reference/react/experimental_taintObjectReference
+- **[UserAct]** MDN. _User activation._ https://developer.mozilla.org/en-US/docs/Web/Security/User_activation
+- **[UW-SOP]** _Agentic Browsers and the Same-Origin Policy._ Agents in the Wild workshop, ICLR 2026. https://iclr.cc/virtual/2026/10016297
+- **[WebMCP]** Chrome for Developers. _WebMCP._ https://developer.chrome.com/docs/ai/webmcp/imperative-api · browser support summary, October 2026: https://www.mcpbundles.com/guides/webmcp-browser-support
+
+Classic works cited by name: Harel, _Statecharts_ (1987) and W3C SCXML (2015); Erman et al., _The Hearsay-II Speech-Understanding System_ (1980); Hewitt et al., the actor model (1973); Doyle, _A Truth Maintenance System_ (1979); Rao and Georgeff, BDI agents (1995); Young and Fowler on CQRS and event sourcing; Wiggins, _The Twelve-Factor App_ (2011); IETF RFC 9315, _Intent-Based Networking_ (2022); Willison, _The Dual LLM pattern_ (2023); FIDES (Microsoft Research, 2025); AIOS (2024).
