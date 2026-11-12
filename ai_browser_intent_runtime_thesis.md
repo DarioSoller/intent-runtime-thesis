@@ -6,7 +6,7 @@
 **Audience:** Senior frontend engineers and architects. AI terms are explained; the DOM, the cascade, dependency injection and service workers are not.
 **Status:** Conceptual architecture and prototyping direction. Statements about products, standards and tooling describe public discussion as of November 2026 and will age.
 **Classification:** Internal
-**Version:** 2.0, November 2026 (supersedes 1.0, October 2026)
+**Date:** November 2026
 
 ---
 
@@ -16,25 +16,7 @@ Current AI harnesses collapse several concerns into one object: the language mod
 
 The argument proceeds by reference architecture. The web platform already solves most of the infrastructure problems such a runtime faces, and frontend engineering has mature answers for composition, state, declarative configuration, dependency injection, packaging and observability. We map both onto the harness problem, strictly separated into **build time** and **run time**, and we rate every mapping on a maturity scale and for research potential.
 
-Version 2.0 repairs the weak point of version 1.0, which was the headline analogy itself. The DOM works because it has a source language with a specified parser, because it is kept apart from everything derived from it, and because it lives under a security model built on origins. The Intent Object Model (IOM) now gets all three: a specified parsing step with recovery rules and user-confirmed intent diffs; a `spec`/`status` split with a derivation pipeline and invalidation classes; and an origin model with counterparts to CORS, CSP, Trusted Types and user activation. Around the IOM we place a family of object models, most importantly a constraint model resolved by a cascade, the CSSOM of this architecture.
-
----
-
-## What changed since 1.0
-
-| #   | Weakness in 1.0                                                                           | Fix in 2.0                                                                                                     | Section             |
-| --- | ----------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- | ------------------- |
-| W1  | No source language and no parser; intent fidelity unaddressed                             | Specified intent parsing: recovery rules, assumptions, intent diff, acceptance criteria                        | 7.3                 |
-| W2  | IOM mixed user-owned and derived state                                                    | `spec`/`status` split; derivation pipeline with invalidation classes                                           | 7.4, 7.9            |
-| W3  | Per-step context selection defeats prompt caching                                         | Volatility-ordered context chunks; selectors rewrite only the tail; register-versus-activate for skills        | 9.6, 10.4           |
-| W4  | Permissions without origins; the data path back into the model was unguarded              | Origin model, CORS for context, CSP for intents, Trusted Types for sinks, taint, user activation, partitioning | 12                  |
-| W5  | "Concurrency control for free"                                                            | Node versions, preconditions, transactions, locks, forks, abort                                                | 7.7                 |
-| W6  | Replay over-claimed; hosted models cannot be pinned; schema evolution and erasure ignored | Three replay modes with divergence detection; model dependency classes; upcasters; crypto-shredding            | 7.6, 9.8, 9.9, 10.2 |
-| W7  | Verification independence asserted; scalar confidence; no retraction                      | Independence requirements; typed epistemic status; decisions as computed values                                | 7.8, 11.6           |
-| W8  | Cognitive scaffolding exposed to model progress                                           | Control plane versus cognitive plane; shadow agents; ablation gates                                            | 2.4, 9.9, 11.1      |
-| W9  | Ecosystem claims dated; related work thin                                                 | Related-work chapter; maturity and research register                                                           | 3, 16               |
-
-All diagrams are Mermaid. Duplicated passages of 1.0 were consolidated; no topic was removed.
+The weak point of such an argument is the headline analogy itself. The DOM works because it has a source language with a specified parser, because it is kept apart from everything derived from it, and because it lives under a security model built on origins. The Intent Object Model (IOM) therefore gets all three: a specified parsing step with recovery rules and user-confirmed intent diffs; a `spec`/`status` split with a derivation pipeline and invalidation classes; and an origin model with counterparts to CORS, CSP, Trusted Types and user activation. Around the IOM we place a family of object models, most importantly a constraint model resolved by a cascade, the CSSOM of this architecture.
 
 ---
 
@@ -68,9 +50,9 @@ Transferred to AI engineering, the design question shifts from "how large must t
 - **P4. Retrieval at the centre.** Vector retrieval is treated as the architecture rather than as one provider.
 - **P5. Opaque execution.** No inspectable record of which model received which context and why.
 - **P6. Unbounded autonomy loops.** The model decides what happens next, including resource allocation and authorisation.
-- **P7. Unparsed intent.** What the user wants is never represented, confirmed or testable. _(new)_
-- **P8. Origin-less context.** The user's words, a tool result and a hostile web page share one context window with equal standing. It is a browser with no same-origin policy. _(new)_
-- **P9. Run time without build time.** Harnesses have behaviour but no resolution, checking, bundling or release discipline. _(new)_
+- **P7. Unparsed intent.** What the user wants is never represented, confirmed or testable.
+- **P8. Origin-less context.** The user's words, a tool result and a hostile web page share one context window with equal standing. It is a browser with no same-origin policy.
+- **P9. Run time without build time.** Harnesses have behaviour but no resolution, checking, bundling or release discipline.
 
 ### 1.3 Thesis statement
 
@@ -109,7 +91,7 @@ These are tastes, defended as engineering choices. Readers with other tastes can
 
 ### 1.6 How to read this document
 
-Everything in Part IV happens before an intent exists. Everything in Part V happens while one is live. Each major section opens with a line such as _Maturity M1 · research potential high_, using the scale of 2.5.
+Everything in Part IV happens before an intent exists. Everything in Part V happens while one is live. Each major section opens with a line such as _Maturity M1 · research potential high_, using the scale of 2.5. All diagrams are Mermaid.
 
 ---
 
@@ -148,7 +130,7 @@ Agent = role + state machine + capabilities + context policy
 Model = capability profile + invoke(request) -> result
 ```
 
-An agent survives model substitution in _identity_. It survives in _behaviour_ only to the degree a conformance suite says so (9.5). Version 1.0 claimed the first and implied the second.
+An agent survives model substitution in _identity_. It survives in _behaviour_ only to the degree a conformance suite says so (9.5).
 
 ### 2.3 The deterministic/probabilistic boundary
 
@@ -163,7 +145,7 @@ An agent survives model substitution in _identity_. It survives in _behaviour_ o
 
 A model may propose `create_subgoal("Find flights")`. Only the runtime decides whether the proposal is valid, authorised, fresh and within budget, and only the runtime records it.
 
-Version 1.0 said the boundary is crossed in one direction only. That is true for authority and false for data. Results flow back into the model through context, and that return path is where prompt injection lives. Version 2.0 guards it with an origin gate.
+It is tempting to say the boundary is crossed in one direction only. That is true for authority and false for data. Results flow back into the model through context, and that return path is where prompt injection lives. The runtime guards it with an origin gate.
 
 ```mermaid
 flowchart LR
@@ -211,7 +193,7 @@ The maturity scale rates the _AI counterpart as a general engineering abstractio
 | **M3** | Established, incomplete | Widely used solutions; standardisation or reliability gaps remain    |
 | **M4** | Mature                  | Stable abstractions and broadly understood practice                  |
 
-Version 1.0's companion material rated almost everything M3, which says little. We add a second axis.
+A maturity level alone says little when most concepts land on the same rating. We therefore add a second axis.
 
 | Research potential | Meaning                                                      |
 | ------------------ | ------------------------------------------------------------ |
@@ -294,7 +276,7 @@ Each table says what the work covers and what it leaves open _for this thesis_.
 | ------------------------------------------------------------------------------ | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
 | MCP Registry, ToolHive, APM, Quiver, skill-lock, NVIDIA verified skills [Lock] | Lockfiles with content hashes, provenance, signing, scanning, SBOM export | Incompatible formats; no shared resolution, peer model dependencies or eval evidence |
 
-Version 1.0 called registries and lockfiles "largely missing". The accurate statement now is: present, plural and incompatible.
+Registries and lockfiles are often described as "largely missing". The accurate statement is: present, plural and incompatible.
 
 ### 3.7 Earlier uses of "intent" as an object
 
@@ -375,7 +357,7 @@ The runtime mirrors the browser's process separation: orchestrator, agent worker
 
 A tab gives user-visible separation, a resource lifecycle, a context boundary, interruptibility and a mental model users already own. Mapping tab to _intent_, not to agent, preserves all of it: "Launch product", "Plan vacation" and "Debug production issue" are three tabs, each with its own agent graph, working memory, artifacts and event stream, sharing one profile.
 
-Two refinements over 1.0. Intents are not always separable, so cross-intent communication uses explicit channels modelled on `postMessage` and `BroadcastChannel`, never shared mutable memory. And tabs under resource pressure follow the Page Lifecycle states (11.10).
+The mapping needs two refinements. Intents are not always separable, so cross-intent communication uses explicit channels modelled on `postMessage` and `BroadcastChannel`, never shared mutable memory. And tabs under resource pressure follow the Page Lifecycle states (11.10).
 
 ### 4.6 The semantic capability layer and the capability-oriented web
 
@@ -501,10 +483,10 @@ flowchart LR
 - **DP6. Capabilities are negotiated.** Agents request capabilities, not implementations.
 - **DP7. Chat is a view.** One projection among several.
 - **DP8. Intent is the primary object.**
-- **DP9. Spec is owned by the user, status by the system.** _(new)_
-- **DP10. Every piece of context has an origin.** _(new)_
-- **DP11. Stable things first.** Context is laid out by volatility because inference caches reward stable prefixes. _(new)_
-- **DP12. Control is mandatory, cognition is optional.** _(new)_
+- **DP9. Spec is owned by the user, status by the system.**
+- **DP10. Every piece of context has an origin.**
+- **DP11. Stable things first.** Context is laid out by volatility because inference caches reward stable prefixes.
+- **DP12. Control is mandatory, cognition is optional.**
 
 ### 6.2 Layer model
 
@@ -621,9 +603,9 @@ Before the IOM, the architecture had agents, models, tools, state, memory, event
 
 ### 7.3 Parsing: from utterance to intent
 
-_Maturity M1 · research potential high · fixes W1._
+_Maturity M1 · research potential high._
 
-The HTML parser is the unsung reason the DOM works. It is specified down to its error recovery, so every engine builds the same tree from the same broken markup. Version 1.0 built the IOM by having a model guess, and validated only that the guess was well-formed.
+The HTML parser is the unsung reason the DOM works. It is specified down to its error recovery, so every engine builds the same tree from the same broken markup. Building the IOM by having a model guess, and validating only that the guess is well-formed, gives up exactly that property.
 
 A model still proposes the draft. Everything around the proposal is specified.
 
@@ -650,8 +632,6 @@ flowchart LR
 Open: recovery rules can be specified; whether a model follows the user's meaning cannot. The diff moves that risk in front of the user instead of removing it.
 
 ### 7.4 Spec and status; graph, not tree
-
-_Fixes W2._
 
 ```text
 intent.spec    written only by user-confirmed commands
@@ -814,9 +794,9 @@ Security:      ActivationGranted · ActivationConsumed · TaintDeclassified · P
 
 ### 7.7 Concurrency: versions, transactions, forks
 
-_Maturity M1 · research potential high · fixes W5._
+_Maturity M1 · research potential high._
 
-Version 1.0 claimed concurrency control came for free. A model call takes seconds to minutes, so every proposal is computed against an old snapshot. The platform already has the tools.
+Concurrency control does not come for free. A model call takes seconds to minutes, so every proposal is computed against an old snapshot. The platform already has the tools.
 
 | Platform mechanism                     | Runtime use                                                                                                              |
 | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
@@ -831,9 +811,9 @@ Semantic conflict has a definition: the validator evaluates the resolved constra
 
 ### 7.8 Epistemic state, provenance and retraction
 
-_Maturity M1 · research potential high · fixes W7._
+_Maturity M1 · research potential high._
 
-Browser state is comparatively objective. An intelligence runtime deals in beliefs. Version 1.0 stored a `confidence` number with no semantics. Version 2.0 stores a status with an evidence chain, as a discriminated union. A numeric score is admissible only with a reference to how it was calibrated.
+Browser state is comparatively objective. An intelligence runtime deals in beliefs. A bare `confidence` number has no semantics. The IOM therefore stores a status with an evidence chain, as a discriminated union. A numeric score is admissible only with a reference to how it was calibrated.
 
 Every artifact carries a provenance graph:
 
@@ -890,7 +870,7 @@ Rules: inherited constraints pierce the shadow boundary and non-inherited ones d
 
 ### 7.11 Standardisation
 
-If the IOM proves useful it could become a platform interface as the DOM did. Version 1.0 doubted the incentives. Two things have changed the picture: a neutral venue now hosts MCP, A2A, AGENTS.md and Agent Skills under one roof [AAIF], and the web's own history suggests a better route than a specification.
+If the IOM proves useful it could become a platform interface as the DOM did. The incentives look doubtful at first sight, but two things change the picture: a neutral venue now hosts MCP, A2A, AGENTS.md and Agent Skills under one roof [AAIF], and the web's own history suggests a better route than a specification.
 
 - **Write the interface in an IDL.** Every web object model is specified in WebIDL, and conformance tests are generated from it.
 - **Start as a test suite.** Web Platform Tests and the Interop effort converged engines more effectively than prose ever did.
@@ -904,7 +884,7 @@ _Maturity M1 · research potential high._
 
 ### 8.1 Why "nearest wins" is not enough
 
-Version 1.0 resolved configuration as ESLint does: later and nearer overrides earlier. That is right for build configuration. It is wrong for policy, where several parties with different authority make claims about the same node: the platform, the enterprise, a skill author, the user. Today's harnesses ask the model to arbitrate. Research on instruction hierarchies shows that models do this unreliably once there are more than a few tiers [ManyIH]. The cascade was designed for this situation and is deterministic. It runs in the runtime; the model sees only the result.
+ESLint resolves configuration by a simple rule: later and nearer overrides earlier. That is right for build configuration. It is wrong for policy, where several parties with different authority make claims about the same node: the platform, the enterprise, a skill author, the user. Today's harnesses ask the model to arbitrate. Research on instruction hierarchies shows that models do this unreliably once there are more than a few tiers [ManyIH]. The cascade was designed for this situation and is deterministic. It runs in the runtime; the model sees only the result.
 
 ### 8.2 Constraint sheets and registered properties
 
@@ -1146,7 +1126,7 @@ _Maturity M1–M2 · research potential high for conformance._
 
 **Model capability targets, shims and conformance.** A `browserslist`-style target declares the minimum model capabilities an agent needs. The frontend answer to a missing feature is a polyfill; the counterpart is a **capability shim**: a stable contract, a detection step, an adapter, a fallback and validation. An agent asks for `ExtractStructuredData` and does not know whether a native API, a parser or a model does the work. A polyfill implements defined behaviour and a fallback model may not, so compatibility must be shown by tests.
 
-That requires three things 1.0 lacked:
+That requires three things:
 
 | Web                                              | Runtime                                                                              |
 | ------------------------------------------------ | ------------------------------------------------------------------------------------ |
@@ -1156,7 +1136,7 @@ That requires three things 1.0 lacked:
 
 ### 9.6 Bundling: tree-shaking, splitting, cache-aware chunks, budgets
 
-_Maturity M2 · research potential medium · fixes W3._
+_Maturity M2 · research potential medium._
 
 **Tree-shaking.** Context presets and skill bundles are pruned to what the configuration requests. Coverage data makes pruning empirical (9.9).
 
@@ -1164,7 +1144,7 @@ _Maturity M2 · research potential medium · fixes W3._
 
 **Source maps.** Provenance is a source map from an output back to the fragments and events that produced it. Priompt already ships prompt-to-source maps [Priompt].
 
-**Cache-aware chunking.** Inference servers reuse computation for a prompt _prefix_ they have seen before (the KV cache), and providers bill cached input far below fresh input. Agents send long prompts and receive short answers, so the cache hit rate dominates cost and latency; practitioners call it the most important production metric and prescribe a stable prefix and append-only context [Manus]. Version 1.0's selector model re-rendered context per step and so destroyed the cache.
+**Cache-aware chunking.** Inference servers reuse computation for a prompt _prefix_ they have seen before (the KV cache), and providers bill cached input far below fresh input. Agents send long prompts and receive short answers, so the cache hit rate dominates cost and latency; practitioners call it the most important production metric and prescribe a stable prefix and append-only context [Manus]. A selector model that re-renders context per step destroys the cache.
 
 Bundlers solved the same problem for browsers. They split vendor code from application code and name chunks by content hash, so that changing one does not invalidate the other. The context bundler does the same, ordered by volatility:
 
@@ -1208,7 +1188,7 @@ Frontend development is unimaginable without scoped packages, semantic versionin
 
 **State in November 2026.** Lockfiles, hashes, signing, scanning and SBOM export exist in several tools, and malicious skills have been found in public catalogues [Lock]. The gap moved from absence to fragmentation. The work now is convergence: one resolution algorithm, peer model dependencies, evals in the registry.
 
-**What a lockfile cannot pin (W6).** A lockfile pins bytes. For a hosted model you hold a name.
+**What a lockfile cannot pin.** A lockfile pins bytes. For a hosted model you hold a name.
 
 | Dependency class  | Example                      | Guarantee            | Lockfile records                         |
 | ----------------- | ---------------------------- | -------------------- | ---------------------------------------- |
@@ -1229,7 +1209,7 @@ Unit, integration and end-to-end tests correspond to evals of a capability, an a
 | `TestBed` provider overrides                           | Swap a live model for a recorded one, tools for fixtures                                            | 11.3                                             |
 | Snapshot tests                                         | **Context snapshot tests**: diff the constructed context for a reference task                       | Exact diffs suit context, which is deterministic |
 | Visual regression (perceptual diff, approved baseline) | **Semantic snapshot tests** for outputs: tolerance plus a reviewed baseline                         | Exact diffs are useless on probabilistic output  |
-| Record and replay                                      | Three modes, below                                                                                  | Fixes W6                                         |
+| Record and replay                                      | Three modes, below                                                                                  | Detects divergence                               |
 | Coverage panel                                         | **Context coverage**: replay with one fragment removed; fragments with no effect are dead           | Feeds tree-shaking and 9.7                       |
 | Mutation testing                                       | Delete a fragment, rule or harness component; if no eval notices, it is dead or the evals are blind | The ablation gate of 2.4                         |
 | Property-based tests                                   | **Metamorphic parser tests**: paraphrase invariance, round trip                                     | 7.3                                              |
@@ -1355,11 +1335,11 @@ A virtual-scroll viewport renders only the rows in view and keeps the scroll hei
 
 ### 11.1 Agent lifecycle as a statechart
 
-_Maturity M3 · research potential low to medium · fixes W8._
+_Maturity M3 · research potential low to medium._
 
 An agent is a state machine. We use statecharts rather than a reducer because hierarchical and parallel states, guards, entry and exit actions and explicit error states are all needed, and all are in XState.
 
-Version 1.0's chart prescribed a thinking procedure: planning, executing, collecting evidence, verifying. That belongs to the cognitive plane. The control-plane chart describes only what the runtime must know.
+A chart that prescribes a thinking procedure (planning, executing, collecting evidence, verifying) belongs to the cognitive plane. The control-plane chart describes only what the runtime must know.
 
 ```mermaid
 stateDiagram-v2
@@ -1381,7 +1361,7 @@ stateDiagram-v2
   Failed --> [*]
 ```
 
-Inside `Running`, a shadow agent may plan, act and reflect in any order. A team that wants the old procedure can ship it as a nested chart in the cognitive plane, with eval evidence.
+Inside `Running`, a shadow agent may plan, act and reflect in any order. A team that wants such a procedure can ship it as a nested chart in the cognitive plane, with eval evidence.
 
 ```text
 state machine -> decides what the agent may do now
@@ -1502,7 +1482,7 @@ critical verification -> high-quality independent verifier
 privacy = local_only  -> local candidate set only
 ```
 
-**Progressive enhancement becomes progressive compute escalation.** Start with the cheapest sufficient resource and escalate on insufficiency. This yields graceful degradation and privacy by default. Version 1.0 left "sufficient?" undefined. A weak model is the worst judge of its own sufficiency, so the acceptance criteria and a verifier answer the question.
+**Progressive enhancement becomes progressive compute escalation.** Start with the cheapest sufficient resource and escalate on insufficiency. This yields graceful degradation and privacy by default. That leaves "sufficient?" to be defined. A weak model is the worst judge of its own sufficiency, so the acceptance criteria and a verifier answer the question.
 
 ```mermaid
 flowchart TD
@@ -1573,13 +1553,11 @@ _Maturity M2 · research potential medium._
 
 Tabs under pressure follow the Page Lifecycle: active, hidden, frozen, discarded. A frozen intent makes no model calls. A discarded intent keeps only its event log. An intent with side effects in flight cannot be frozen, as a page with open connections is ineligible for the back/forward cache. Abandoning an intent with uncommitted side effects asks first.
 
-Resuming is hydration from the event store. Version 1.0 stopped there, which means replaying everything. Angular's incremental hydration is the better model: state arrives serialised, and a part is hydrated only when a trigger fires. For an intent: load the latest snapshot, wake only the agent whose event arrives, leave completed subgoals as inert content. Two details transfer. **Event replay:** user input that arrives before the runtime is ready is captured and replayed. **Mismatch detection:** if the projection rebuilt from events disagrees with the stored snapshot, that is an error to surface.
+Resuming is hydration from the event store. Stopping there would mean replaying everything. Angular's incremental hydration is the better model: state arrives serialised, and a part is hydrated only when a trigger fires. For an intent: load the latest snapshot, wake only the agent whose event arrives, leave completed subgoals as inert content. Two details transfer. **Event replay:** user input that arrives before the runtime is ready is captured and replayed. **Mismatch detection:** if the projection rebuilt from events disagrees with the stored snapshot, that is an error to surface.
 
 ---
 
 ## 12. Security: Origins, Not Just Permissions
-
-_Fixes W4._
 
 ### 12.1 Capability security
 
@@ -1896,7 +1874,7 @@ flowchart TB
 6. **Semantic capability layer.** `SearchWeb`, `ReadPage`, `FillForm`, `SubmitForm`, `Schedule`, `Purchase`; WebMCP where offered.
 7. **Intelligence DevTools.**
 
-Security moved from an afterthought to phase 2 because an object model that scripts can drive is an attack surface from its first day (5.1).
+Security comes as early as phase 2 because an object model that scripts can drive is an attack surface from its first day (5.1).
 
 ### 15.4 Runtime shape
 
@@ -1979,7 +1957,7 @@ models:
     - { id: cloud-coder, class: pinned-snapshot }
 ```
 
-Privacy, cost and verification, which 1.0 kept in a `policy` block, are now constraint declarations (8.2).
+Privacy, cost and verification are not kept in a separate `policy` block; they are constraint declarations (8.2).
 
 ### 15.6 Twelve-factor mapping (operations layer)
 
